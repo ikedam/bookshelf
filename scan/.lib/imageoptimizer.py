@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import os
+import os.path
+import re
 
 import PIL.Image
 import PIL.ImageChops
@@ -25,22 +28,30 @@ class ImageOptimizer(object):
     DIFF_THRESHOLD = 200.0 / 758 / 1024
     DIVIDE_OVERWRAP = 0.05
 
-    def __init__(self, whitespace, percentile=95, boldize=True, verboseBound=False, allowDivide=False):
+    # 基本名 連番 . 拡張子
+    FILENAME_PARSER = re.compile(r'^(.*?)(\d+)\..*?$')
+
+    def __init__(self, whitespace, percentile=95, boldize=True, verboseBound=False):
         self._Logger = logging.getLogger(self.__class__.__name__)
         self._Whitespace = whitespace
         self._Boldize = boldize
         self._Percentile = percentile
         self._VerboseBound = verboseBound
-        self._allowDivide = allowDivide
+        # 本の開く向き
+        # 縦書き (右から左に開く) をデフォルトにする
+        self._LTR = False
         self._preferDivide = False
         self.reset()
 
-    def setAllowDivide(self, allowDivide):
-        self._allowDivide = allowDivide
+    def setRTL(self):
+        self._RTL = False
+
+    def setLTR(self):
+        self._LTR = True
 
     @property
     def divideMode(self):
-        return self._allowDivide and self._preferDivide
+        return self._LTR and self._preferDivide
 
     def is_black_image(self, image):
         if image.mode != 'L':
@@ -57,13 +68,9 @@ class ImageOptimizer(object):
         return whites * 10 < blacks
 
     def reset(self, size=None):
-        self._lboundList = []
-        self._rboundList = []
-        self._lbound = None
-        self._rbound = None
+        self._boundMap = {}
         self._actualMmSizeList = []
         self._preferDivide = False
-        self._page = 0
         self._size = size
 
     def need_prescan(self):
@@ -100,7 +107,6 @@ class ImageOptimizer(object):
     def prescan(self, name, fh):
         if not self.need_prescan():
             return
-        self._page = self._page + 1
         image = PIL.Image.open(fh)
         if 'dpi' in image.info:
             self._actualMmSizeList.append((
@@ -112,28 +118,79 @@ class ImageOptimizer(object):
         if self.is_black_image(image):
             return
 
-        image = image.point(lambda x: 255 if x > 100  else x)
-        bound = PIL.ImageOps.invert(image).getbbox()
-        if bound:
-            actualBound = bound
-            bound = (
-              float(actualBound[0]) / image.size[0],
-              float(actualBound[1]) / image.size[1],
-              float(actualBound[2]) / image.size[0],
-              float(actualBound[3]) / image.size[1],
+        # ファイル名を ベースネーム + 連番 と仮定し、ベースネームでクラスタリングする
+        match = self.FILENAME_PARSER.match(name)
+        if not match:
+            self._Logger.warn(
+                '%s: Unexpected file name pattern',
+                name,
             )
-            if self._VerboseBound:
-                self._Logger.debug(
-                    '%s: size: %04d %04d bound: %04d %04d %04d %04d scaled: %s',
-                    name,
-                    image.size[0], image.size[1],
-                    actualBound[0], actualBound[1], actualBound[2], actualBound[3],
-                    bound,
-                )
-            if self._page % 2 == 1:
-                self._lboundList.append(list(bound) + [name])
-            else:
-                self._rboundList.append(list(bound) + [name])
+            return
+
+        basename = match.group(1)
+        pagenumber = int(match.group(2))
+        # 左側のページか?
+        isL = (not self._LTR and pagenumber % 2 == 1) or (self._LTR and pagenumber % 2 == 0)
+
+        if basename not in self._boundMap:
+            self._boundMap[basename] = {
+                'lboundList': [],
+                'rboundList': [],
+                'lbound': None,
+                'rbound': None,
+            }
+
+        # ある程度薄い色は無視する
+        image = image.point(lambda x: 255 if x > 100  else x)
+        # 何らかの描画がある範囲の抽出
+        bound = PIL.ImageOps.invert(image).getbbox()
+        if not bound:
+            # 真っ白なページ
+            self._Logger.debug(
+                '%s: No bounds calculated',
+                name,
+            )
+            return
+
+        # 縦位置についてはページの「真ん中」からの距離が一定であるとする。
+        # 横位置についてはページの「外側」からの距離が一定であるとする。
+        # 「外側」とは…
+        # * 右開きの本 (not self._LTR) の場合
+        #     * 奇数ページ(左ページ)は左から
+        #     * 偶数ページ(右ページ)は右から
+        # * 左開きの本 (self._LTR) の場合
+        #     * 奇数ページ(右ページ)は右から
+        #     * 偶数ページ(左ページ)は左から
+        vertCenter = image.size[1] / 2
+        if isL:
+            # 左から
+            relativeBound = (
+                bound[0],   # x0
+                bound[1] - vertCenter,  # y0
+                bound[2],   # x1
+                bound[3] - vertCenter,  # y1
+            )
+        else:
+            # 右から
+            # 左右を反転することにも注意。
+            relativeBound = (
+                image.size[0] - bound[2],   # x0
+                bound[1] - vertCenter,  # y0
+                image.size[0] - bound[0],   # x1
+                bound[3] - vertCenter,  # y1
+            )
+        if self._VerboseBound:
+            self._Logger.debug(
+                '%s: size: %04d %04d bound: %04d %04d %04d %04d relative: %s',
+                name,
+                image.size[0], image.size[1],
+                bound[0], bound[1], bound[2], bound[3],
+                relativeBound,
+            )
+        if isL:
+            self._boundMap[basename]['lboundList'].append(list(relativeBound) + [name])
+        else:
+            self._boundMap[basename]['rboundList'].append(list(relativeBound) + [name])
 
     def _calculateBound(self, boundList):
         size = len(boundList)
@@ -160,10 +217,10 @@ class ImageOptimizer(object):
             bottoms[len(bottoms) * self._Percentile // 100],
         )
         bound = (
-            max(0, bound[0] - self.BOUND_MARGIN),
-            max(0, bound[1] - self.BOUND_MARGIN),
-            bound[2] + self.BOUND_MARGIN,
-            bound[3] + self.BOUND_MARGIN,
+            bound[0],
+            bound[1],
+            bound[2],
+            bound[3],
         )
         return bound
 
@@ -171,26 +228,26 @@ class ImageOptimizer(object):
         if not self.need_prescan():
             return
 
-        if self._VerboseBound:
-            for idx, b in enumerate(self._lboundList):
-                self._Logger.debug('%s: %.04f %.04f %.04f %.04f', b[4], *b[0:4])
-            for idx, b in enumerate(self._rboundList):
-                self._Logger.debug('%s: %.04f %.04f %.04f %.04f', b[4], *b[0:4])
-        lbound = self._calculateBound(self._lboundList)
-        rbound = self._calculateBound(self._rboundList)
+        for name, bounds in self._boundMap.iteritems():
+            if self._VerboseBound:
+                self._Logger.debug('%s', name)
+                for idx, b in enumerate(bounds['lboundList']):
+                    self._Logger.debug('%s: %.04f %.04f %.04f %.04f', b[4], *b[0:4])
+                for idx, b in enumerate(bounds['rboundList']):
+                    self._Logger.debug('%s: %.04f %.04f %.04f %.04f', b[4], *b[0:4])
+            bounds['lbound'] = self._calculateBound(bounds['lboundList'])
+            bounds['rbound'] = self._calculateBound(bounds['rboundList'])
 
-        if not lbound or not rbound:
-            self._Logger.warn(
-                'Whitespace handler is disabled. Samples might be too fewer: %s, %s',
-                len(self._lboundList),
-                len(self._rboundList),
-            )
-            return
+            self._Logger.debug('left bound: %s', bounds['lbound'])
+            self._Logger.debug('right bound: %s', bounds['rbound'])
 
-        self._lbound = lbound
-        self._rbound = rbound
-        self._Logger.debug('left bound: %s', self._lbound)
-        self._Logger.debug('right bound: %s', self._rbound)
+            if not bounds['lbound'] or not bounds['rbound']:
+                self._Logger.warn(
+                    '%s: Whitespace handler is disabled. Samples might be too fewer: %s, %s',
+                    name,
+                    len(bounds['lboundList']),
+                    len(bounds['rboundList']),
+                )
 
         if self._actualMmSizeList:
             widths = [s[0] for s in self._actualMmSizeList]
@@ -208,30 +265,52 @@ class ImageOptimizer(object):
                 91 < 0.6 * width
                 or 123 < 0.6 * height
             )
-            if self._allowDivide and self._preferDivide:
+            if self._LTR and self._preferDivide:
                 self._Logger.info('Divide mode is enabled')
 
     def optimize(self, name, infh, outfh):
-        self._page = self._page + 1
-        if self._page % 2 == 1:
-            bound = self._lbound
+        match = self.FILENAME_PARSER.match(name)
+        if match:
+            basename = match.group(1)
+            pagenumber = int(match.group(2))
+            # 左側のページか?
+            isL = (not self._LTR and pagenumber % 2 == 1) or (self._LTR and pagenumber % 2 == 0)
+            if isL:
+                bound = self._boundMap.get(basename, {}).get('lbound')
+            else:
+                bound = self._boundMap.get(basename, {}).get('rbound')
         else:
-            bound = self._rbound
+            bound = None
 
         image = PIL.Image.open(infh)
 
         if image.mode == 'L':
             if not self.is_black_image(image):
                 if bound:
-                    scaledBound = (
-                        int(bound[0] * image.size[0]),
-                        int(bound[1] * image.size[1]),
-                        int(bound[2] * image.size[0]),
-                        int(bound[3] * image.size[1]),
+                    vertCenter = image.size[1] / 2
+                    if isL:
+                        bound = (
+                            bound[0],   # x0
+                            bound[1] + vertCenter,  # y0
+                            bound[2],   # x1
+                            bound[3] + vertCenter,  # y1
+                        )
+                    else:
+                        bound = (
+                            image.size[0] - bound[2],   # x0
+                            bound[1] + vertCenter,  # y0
+                            image.size[0] - bound[0],   # x1
+                            bound[3] + vertCenter,  # y1
+                        )
+                    bound = (
+                        max(0, bound[0] - int(image.size[0] * self.BOUND_MARGIN)),
+                        max(0, bound[1] - int(image.size[1] * self.BOUND_MARGIN)),
+                        min(image.size[0], bound[2] + int(image.size[0] * self.BOUND_MARGIN)),
+                        min(image.size[1], bound[3] + int(image.size[1] * self.BOUND_MARGIN)),
                     )
-                    trimmedImage = image.crop(scaledBound)
+                    trimmedImage = image.crop(bound)
                     cleanedImage = PIL.Image.new(image.mode, image.size, 255)
-                    cleanedImage.paste(trimmedImage, scaledBound[:2])
+                    cleanedImage.paste(trimmedImage, bound[:2])
                     diff = PIL.ImageChops.difference(cleanedImage, image)
                     diffs = 0
                     for count, color in diff.getcolors():
@@ -240,6 +319,10 @@ class ImageOptimizer(object):
                     if diffs < self.DIFF_THRESHOLD * image.size[0] * image.size[1]:
                         if diffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
                             self._Logger.warn('%s: Many dirts (%s)', name, diffs)
+                            if self._VerboseBound:
+                                if not os.path.exists('dirts'):
+                                    os.mkdir('dirts')
+                                diff.save('dirts/%s' % name)
                         elif diffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
                             self._Logger.info('%s: Dirts (%s)', name, diffs)
                         if self._Whitespace == self.WHITESPACE_CLEAN:
@@ -248,6 +331,10 @@ class ImageOptimizer(object):
                             image = trimmedImage
                     else:
                         self._Logger.warn('%s: Too many dirts and not cleaned (%s)', name, diffs)
+                        if self._VerboseBound:
+                            if not os.path.exists('dirts'):
+                                os.mkdir('dirts')
+                            diff.save('dirts/%s' % name)
 
         inDivideMode = self.divideMode and isinstance(outfh, (list, tuple))
 

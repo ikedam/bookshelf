@@ -131,8 +131,8 @@ class ZipToMobi(object):
 
             if metadataFile is not None and not metadata:
                 metadata = json.loads(rh.read(metadataFile))
-                # 右開きの本の場合、横書きなのでサイズが大きい場合は横分割を行う。
-                self._Optimizer.setAllowDivide(metadata.get('page-progression-direction') == 'ltr')
+                if metadata.get('page-progression-direction') == 'ltr':
+                    self._Optimizer.setLTR()
 
             self._Optimizer.prepare_optimize()
 

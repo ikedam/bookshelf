@@ -149,7 +149,7 @@ class IndexScanner(object):
         self._Ignores = []
         file = os.path.join(os.path.dirname(__file__), 'ignores.txt')
         if os.path.exists(file):
-          self._Ignores = open(file).readlines()
+          self._Ignores = [line.rstrip() for line in open(file).readlines()]
 
     def scan(self, generator, title, dir, controllerPath, opts):
         self._Logger.debug('%s', dir)
