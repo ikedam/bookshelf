@@ -1,0 +1,202 @@
+@charset "UTF-8";
+
+#login-form dt, #login-form dd, #login-form input[type="submit"] {
+	width: 100%;
+	font-size: 2rem;
+}
+#login-form input {
+	width: 100%;
+	font-size: 2rem;
+}
+#login-form input[type="checkbox"] {
+	width: 2rem;
+	height: 2rem;
+}
+.browser-info {
+	margin-top: 2rem;
+}
+.browser-info dd {
+	margin-left: 2rem;
+}
+
+@font-face {
+	font-family: 'FontAwesome';
+	src: url('fonts/fontawesome-webfont.eot?v=4.7.0');
+	src: url('fonts/fontawesome-webfont.eot?#iefix&v=4.7.0') format('embedded-opentype'), url('fonts/fontawesome-webfont.woff2?v=4.7.0') format('woff2'), url('fonts/fontawesome-webfont.woff?v=4.7.0') format('woff'), url('fonts/fontawesome-webfont.ttf?v=4.7.0') format('truetype'), url('fonts/fontawesome-webfont.svg?v=4.7.0#fontawesomeregular') format('svg');
+	font-weight: normal;
+	font-style: normal;
+}
+body * {
+	margin: 0;
+	padding: 0;
+	font-size: inherit;
+}
+
+#viewer {
+	font-size: 2rem;
+}
+#viewer #login-form {
+	display: none;
+}
+
+#viewer.unauthorized #login-form {
+	display: block;
+}
+
+#viewer #error.none {
+	display: none;
+}
+
+#viewer #booklist .book.filtered {
+	display: none;
+}
+
+#viewer #booklist {
+	list-style-type: none;
+}
+
+#viewer #booklist td {
+	padding-top: 0.5em;
+	padding-bottom: 0.5em;
+}
+
+#navigation ul:after {
+	display: block;
+	clear: both;
+	content: '';
+}
+
+#viewer.unauthorized #navigation {
+	display: none;
+}
+
+#viewer.fullsearch #navigation {
+	display: none;
+}
+
+#navigation {
+	margin-bottom: 1em;
+}
+
+#navigation li {
+	display: block;
+	float: left;
+}
+
+#navigation-fullsearch {
+	display: none;
+}
+
+#viewer.unauthorized #navigation-fullsearch {
+	display: none;
+}
+
+#viewer.fullsearch #navigation-fullsearch {
+	display: block;
+}
+
+#viewer.fullsearch.unauthorized #navigation-fullsearch {
+	display: none;
+}
+
+#viewer #up:before{
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	font-size: 150%;
+	padding-left: 0.5em;
+	padding-right: 0;
+	content: "\f106 ";
+}
+
+#viewer #root-container {
+	margin-left: 5em;
+}
+
+#viewer .root-link:before{
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	font-size: 150%;
+	padding-left: 0.5em;
+	padding-right: 0;
+	content: "\f102 ";
+}
+
+#viewer #fullsearch-container {
+	float: right;
+	margin-right: 1em;
+}
+
+#viewer #fullsearch{
+	font-size: 0;
+}
+
+#viewer #fullsearch:before{
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	font-size: 3rem;
+	content: "\f002";
+}
+
+#viewer .book.dir .title:before {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: "\f114";
+	margin-right: 0.2em;
+}
+
+#viewer .book.file .title:before {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: "\f016";
+	margin-right: 0.2em;
+}
+
+#viewer.kobo .book.file.mobi {
+	display: none;
+}
+
+#viewer.kindle .book.file.epub {
+	display: none;
+}
+
+#viewer.pc .book.file.epub .title:after {
+	content: '(epub)'
+}
+
+#viewer.pc .book.file.mobi .title:after {
+	content: '(mobi)'
+}
+
+#viewer .date {
+	font-size: 50%;
+}
+
+#viewer .ordered-desc:after {
+	content: "▼";
+}
+
+#viewer .ordered-asc:after {
+	content: "▲";
+}
+
+#viewer a.downloaded:after {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: " \f00c";
+}
+
+#search input {
+	width: 100%;
+	font-size: 2rem;
+}
+
+#fullsearch-box input {
+	width: 100%;
+	font-size: 2rem;
+}

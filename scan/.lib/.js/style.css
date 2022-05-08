@@ -1,0 +1,119 @@
+@charset "UTF-8";
+
+@font-face {
+	font-family: 'FontAwesome';
+	src: url('fonts/fontawesome-webfont.eot?v=4.7.0');
+	src: url('fonts/fontawesome-webfont.eot?#iefix&v=4.7.0') format('embedded-opentype'), url('fonts/fontawesome-webfont.woff2?v=4.7.0') format('woff2'), url('fonts/fontawesome-webfont.woff?v=4.7.0') format('woff'), url('fonts/fontawesome-webfont.ttf?v=4.7.0') format('truetype'), url('fonts/fontawesome-webfont.svg?v=4.7.0#fontawesomeregular') format('svg');
+	font-weight: normal;
+	font-style: normal;
+}
+body {
+	font-size: 2rem;
+}
+body * {
+	margin: 0;
+	padding: 0;
+	font-size: inherit;
+}
+
+#booklist {
+	list-style-type: none;
+}
+
+#booklist td {
+	padding-top: 0.5em;
+	padding-bottom: 0.5em;
+}
+
+.go-up:before{
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	padding-left: 0.5em;
+	padding-right: 0.5em;
+	content: "\f148";
+}
+
+.book.dir .title:before {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: "\f114";
+	margin-right: 0.2em;
+}
+
+.book.file .title:before {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: "\f016";
+	margin-right: 0.2em;
+}
+
+.book.filtered {
+	display: none;
+}
+
+body.kobo .book.file.mobi {
+	display: none;
+}
+
+body.kindle .book.file.epub {
+	display: none;
+}
+
+body.pc .book.file.epub .title:after {
+	content: '(epub)'
+}
+
+body.pc .book.file.mobi .title:after {
+	content: '(mobi)'
+}
+
+.date {
+	font-size: 50%;
+}
+
+.no-support-download .download-check{
+	display: none;
+}
+
+.ordered-desc:after {
+	content: "▼";
+}
+
+.ordered-asc:after {
+	content: "▲";
+}
+
+input[type=checkbox] {
+	display: none;
+}
+
+a.downloaded:after {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: " \f00c";
+}
+
+input[type=checkbox] + span.checkbox-display:before {
+	font-family: FontAwesome;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	content: "\f096";
+}
+
+input[type=checkbox]:checked + span.checkbox-display:before {
+	content: "\f046";
+}
+
+#booklist button {
+	display: inline-block;
+	background-color: inherit;
+	border: 1px solid #000;
+	border-radius: 0.5rem;
+	padding: 0.5rem;
+	margin-left: 1rem;
+	margin-right: 1rem;
+}

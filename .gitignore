@@ -1,0 +1,13 @@
+/login/.js/fonts/*
+/login/.js/jquery*.js
+/login/.js/moment*.js
+/scan/.lib/.js/fonts/*
+/scan/.lib/.js/FileSaver.js
+/scan/.lib/*.pyc
+/scan/.lib/author.json
+/scan/.lib/ignores.txt
+/scan/.lib/kindlegen.exe
+/scan/.lib/kindlestrip.py
+/scan/.lib/.js/jquery*.js
+/scan/.lib/.js/jszip*.js
+/scan/.lib/.js/moment*.js

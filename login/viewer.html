@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>書籍ファイルビューワー</title>
+  <script src="./.js/jquery-3.2.1.js"></script>
+  <script src="./.js/moment.js"></script>
+  <script src="./.js/viewer.js"></script>
+  <link rel="stylesheet" href="./.js/style.css">
+</head>
+<body id="viewer">
+<div id="error" class="none"></div>
+<form id="login-form">
+<dl>
+  <dt>ID</dt>
+  <dd><input type="text" name="user"></dd>
+  <dt>PASS</dt>
+  <dd><input type="password" name="password"></dd>
+</dl>
+<input type="submit">
+</form>
+<div id="navigation">
+  <form id="search"><input placeholder="リアルタイムフィルタリング"></form>
+  <ul>
+    <li id="up-container"><a href="#" id="up">戻る</a></li>
+    <li id="root-container"><a href="#" class="root-link">トップへ</a></li>
+    <li id="fullsearch-container"><a href="#fullsearch" id="fullsearch">全検索</a></li>
+  </ul>
+</div>
+<div id="navigation-fullsearch">
+  <div><a href="#" class="root-link">トップへ</a></div>
+  <form id="fullsearch-box"><input placeholder="入力後エンターで検索"><!--<button>Go</button>--></form>
+</div>
+<div id="loaded">
+</div>
+</body>
+</html>
