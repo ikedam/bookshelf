@@ -428,23 +428,8 @@ class ImageOptimizer(object):
             (bound[i] - detectBound[i]) != 0
             for i in range(0, 4)
         ]
-        if not any(boundDiff):
-            # ノイズなし
-            self._Logger.debug('%s: No dirts', name)
-            if self._VerboseBound:
-                bound = self.invertBound(image.size, bound)
-                bound = [
-                    max(0, bound[i] - int(pxPerMm[i % 2] * self.BOUND_MARGIN))
-                    for i in range(0, 4)
-                ]
-                bound = self.invertBound(image.size, bound)
-                trimmedImage = image.crop(bound)
-                if not os.path.exists('trimmed'):
-                    os.mkdir('trimmed')
-                PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
-            return image
-
-        self._Logger.debug('%s: detect dirts: %s -> %s', name, bound, detectBound)
+        if any(boundDiff):
+            self._Logger.debug('%s: detect dirts: %s -> %s', name, bound, detectBound)
 
         detectBound = self.invertBound(image.size, detectBound)
         bound = [
@@ -457,18 +442,20 @@ class ImageOptimizer(object):
         cleanedImage = PIL.Image.new(image.mode, image.size, 255)
         cleanedImage.paste(trimmedImage, bound[:2])
         diff = PIL.ImageChops.difference(cleanedImage, image)
-        if self._VerboseBound:
-            if not os.path.exists('dirts'):
-                os.mkdir('dirts')
-            if not os.path.exists('trimmed'):
-                os.mkdir('trimmed')
-            diff.save('dirts/%s' % name)
-            PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
 
         diffs = 0
         for count, color in diff.getcolors():
             if color >= self.BLACK_THRESHOLD:
                 diffs = diffs + count
+
+        if self._VerboseBound:
+            if diffs > 0:
+                if not os.path.exists('dirts'):
+                    os.mkdir('dirts')
+                diff.save('dirts/%s' % name)
+            if not os.path.exists('trimmed'):
+                os.mkdir('trimmed')
+            PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
 
         if diffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
             self._Logger.warn('%s: Many dirts (%s)', name, diffs)

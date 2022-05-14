@@ -21,12 +21,13 @@ class ZipToMobi(object):
     VERSION = 1559310345
     SIZE = (758, 1024)
 
-    def __init__(self, optimizer, skip=False, preseveEpub=False):
+    def __init__(self, optimizer, skip=False, preseveEpub=False, skipMobi=False):
         self._Logger = logging.getLogger(self.__class__.__name__)
         self._count = 0
         self._skip = skip
         self._Optimizer = optimizer
         self._PreserveEpub = preseveEpub
+        self._SkipMobi = skipMobi
 
         self._kindlegen = self.find_executable('kindlegen')
 
@@ -100,9 +101,9 @@ class ZipToMobi(object):
             os.makedirs(toDir)
 
         epubScanStartTime = time.time()
-        fd, tmpFile = tempfile.mkstemp(suffix='.epub')
+        fd, tmpEpubFile = tempfile.mkstemp(suffix='.epub')
         os.close(fd)
-        with zipfile.ZipFile(fromFile, 'r') as rh, zipfile.ZipFile(tmpFile, 'w') as wh:
+        with zipfile.ZipFile(fromFile, 'r') as rh, zipfile.ZipFile(tmpEpubFile, 'w') as wh:
             wh.writestr(
                 'mimetype',
                 'application/epub+zip',
@@ -189,62 +190,62 @@ class ZipToMobi(object):
             )
 
         mobiGenerateStartTime = time.time()
-        tmpMobiFile = tmpFile + '.mobi'
-        tmpFileToUse = tmpFile
+        tmpMobiFile = tmpEpubFile + '.mobi'
+        tmpFileToUse = tmpEpubFile
         if os.path.isdir('/cygdrive'):
             tmpFileToUse = subprocess.check_output([
                 'cygpath',
                 '-w',
-                tmpFile,
+                tmpEpubFile,
             ]).rstrip()
-        self._Logger.debug('Launching %s', self._kindlegen)
-        cmd = [
-            self._kindlegen,
-            tmpFileToUse,
-            '-c0',
-            '-locale',
-            'ja',
-            '-o',
-            os.path.basename(tmpMobiFile),
-        ]
-        p = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        stdout, stderr = p.communicate()
-        if p.returncode != 0:
-            self._Logger.error(
-                'command failed with %s: %s',
-                p.returncode,
-                cmd,
-            )
-            self._Logger.error('stdout from kindlegen: %s', stdout)
-            self._Logger.error('stderr from kindlegen: %s', stderr)
-            raise('Command failed with {0}: {1}'.format(p.returncode, cmd))
 
-        self._Logger.debug('stdout from kindlegen: %s', stdout)
-        self._Logger.debug('stderr from kindlegen: %s', stderr)
+        if not self._SkipMobi:
+            self._Logger.debug('Launching %s', self._kindlegen)
+            cmd = [
+                self._kindlegen,
+                tmpFileToUse,
+                '-c0',
+                '-locale',
+                'ja',
+                '-o',
+                os.path.basename(tmpMobiFile),
+            ]
+            p = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = p.communicate()
+            if p.returncode != 0:
+                self._Logger.error(
+                    'command failed with %s: %s',
+                    p.returncode,
+                    cmd,
+                )
+                self._Logger.error('stdout from kindlegen: %s', stdout)
+                self._Logger.error('stderr from kindlegen: %s', stderr)
+                raise('Command failed with {0}: {1}'.format(p.returncode, cmd))
+
+            self._Logger.debug('stdout from kindlegen: %s', stdout)
+            self._Logger.debug('stderr from kindlegen: %s', stderr)
+
+            with open(tmpMobiFile, 'rb') as fh:
+                data = fh.read()
+            if self._SRCSStripper:
+                stripper = self._SRCSStripper(data)
+                data = stripper.getResult()
+            with open(tmpMobiFile, 'wb') as fh:
+                fh.write(data)
+
+            os.rename(tmpMobiFile, toFile)
+
+        if not self._PreserveEpub:
+            os.unlink(tmpEpubFile)
+        else:
+            os.rename(tmpEpubFile, toFile + '.epub')
 
         mobiGenerateEndTime = time.time()
 
-        if not self._PreserveEpub:
-            os.unlink(tmpFile)
-        else:
-           os.rename(tmpFile, toFile + '.epub')
-        tmpFile = toFile + '.tmp'
-
-        # os.rename(tmpMobiFile, tmpFile)
-        with open(tmpMobiFile, 'rb') as fh:
-            data = fh.read()
-        if self._SRCSStripper:
-            stripper = self._SRCSStripper(data)
-            data = stripper.getResult()
-        with open(tmpFile, 'wb') as fh:
-            fh.write(data)
-        os.unlink(tmpMobiFile)
-
-        os.rename(tmpFile, toFile)
         self._Logger.info(
             'Done took %ss (Prescan: %ss,  Epub: %ss Epub to Mobi: %ss',
             int(mobiGenerateEndTime - epubScanStartTime),
@@ -363,6 +364,7 @@ class ZipToMobi(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', dest='verbose', action='count', default=0)
+    parser.add_argument('-M', dest='skipMobi', action='store_true', default=False)
     parser.add_argument('zipfile')
     opts = parser.parse_args()
     level = logging.INFO
@@ -388,5 +390,8 @@ if __name__ == '__main__':
         whitespace=imageoptimizer.ImageOptimizer.WHITESPACE_CLEAN,
         verboseBound=True,
     )
-    copier = ZipToMobi(optimizer)
+    copier = ZipToMobi(
+        optimizer,
+        skipMobi=opts.skipMobi,
+    )
     copier(file, '.', opts)
