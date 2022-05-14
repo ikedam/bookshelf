@@ -234,10 +234,12 @@ class ZipToMobi(object):
             if self._SRCSStripper:
                 stripper = self._SRCSStripper(data)
                 data = stripper.getResult()
-            with open(tmpMobiFile, 'wb') as fh:
+            # cross-device link にならないよう別名で書き出し
+            toFileTmp = toFile + '.tmp'
+            with open(toFileTmp, 'wb') as fh:
                 fh.write(data)
 
-            os.rename(tmpMobiFile, toFile)
+            os.rename(toFileTmp, toFile)
 
         if not self._PreserveEpub:
             os.unlink(tmpEpubFile)
