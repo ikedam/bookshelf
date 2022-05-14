@@ -20,13 +20,15 @@ class ImageOptimizer(object):
     WHITESPACE_TRIM = 2
 
     BOUND_LOWER = 100
-    BOUND_MARGIN = 0.002
+    # 検出した描画範囲からの安全のために確保するマージン (mm)
+    BOUND_MARGIN = 1.0
     IGNORE_SAMPLES = 5
     BLACK_THRESHOLD = 30
     DIFF_THRESHOLD_INFO = 10.0 / 758 / 1024
     DIFF_THRESHOLD_WARN = 100.0 / 758 / 1024
     DIFF_THRESHOLD = 200.0 / 758 / 1024
     DIVIDE_OVERWRAP = 0.05
+    MM_PER_INCH = 25.4
 
     # 基本名 連番 . 拡張子
     FILENAME_PARSER = re.compile(r'^(.*?)(\d+)\..*?$')
@@ -110,9 +112,11 @@ class ImageOptimizer(object):
         image = PIL.Image.open(fh)
         if 'dpi' in image.info:
             self._actualMmSizeList.append((
-                image.size[0] * 25.4 / image.info['dpi'][0],
-                image.size[1] * 25.4 / image.info['dpi'][1],
+                image.size[0] * self.MM_PER_INCH / image.info['dpi'][0],
+                image.size[1] * self.MM_PER_INCH / image.info['dpi'][1],
             ))
+        # 外辺情報を使用しない
+        return
         if image.mode != 'L':
             return
         if self.is_black_image(image):
@@ -284,7 +288,9 @@ class ImageOptimizer(object):
 
         image = PIL.Image.open(infh)
 
-        if image.mode == 'L':
+        if image.mode == 'L' and self._Whitespace != self.WHITESPACE_NONE:
+            image = self.removeDirts(image, name)
+            """
             if not self.is_black_image(image):
                 if bound:
                     vertCenter = image.size[1] / 2
@@ -335,6 +341,7 @@ class ImageOptimizer(object):
                             if not os.path.exists('dirts'):
                                 os.mkdir('dirts')
                             diff.save('dirts/%s' % name)
+            """
 
         inDivideMode = self.divideMode and isinstance(outfh, (list, tuple))
 
@@ -384,3 +391,266 @@ class ImageOptimizer(object):
             return
 
         image.save(outfh, format='jpeg')
+
+    def removeDirts(self, image, name):
+        u"""余白部のノイズを除去した画像を返す"""
+        if 'dpi' not in image.info:
+            self._Logger.warn('%s: no dpi information', name)
+            return image
+
+        pxPerMm = [
+            image.info['dpi'][i] / self.MM_PER_INCH
+            for i in range(0, 2)
+        ]
+
+        # ある程度薄い色は無視する
+        boundImage = image.point(lambda x: 255 if x > 100  else x)
+        bound = PIL.ImageOps.invert(boundImage).getbbox()
+        detectBound = self.detectBound(boundImage, pxPerMm, name)
+
+        if not detectBound:
+            # 真っ白なページ
+            self._Logger.debug('%s: White page', name)
+            whitepage = PIL.Image.new(
+                image.mode,
+                image.size,
+                255,
+            )
+            if bound and self._VerboseBound:
+                # ノイズ除去の結果白いページになった
+                diff = PIL.ImageChops.difference(image, whitepage)
+                if not os.path.exists('dirts'):
+                    os.mkdir('dirts')
+                diff.save('dirts/%s' % name)
+            return whitepage
+
+        boundDiff = [
+            (bound[i] - detectBound[i]) != 0
+            for i in range(0, 4)
+        ]
+        if not any(boundDiff):
+            # ノイズなし
+            self._Logger.debug('%s: No dirts', name)
+            if self._VerboseBound:
+                bound = self.invertBound(image.size, bound)
+                bound = [
+                    max(0, bound[i] - int(pxPerMm[i % 2] * self.BOUND_MARGIN))
+                    for i in range(0, 4)
+                ]
+                bound = self.invertBound(image.size, bound)
+                trimmedImage = image.crop(bound)
+                if not os.path.exists('trimmed'):
+                    os.mkdir('trimmed')
+                PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
+            return image
+
+        self._Logger.debug('%s: detect dirts: %s -> %s', name, bound, detectBound)
+
+        detectBound = self.invertBound(image.size, detectBound)
+        bound = [
+            max(0, detectBound[i] - int(pxPerMm[i % 2] * self.BOUND_MARGIN))
+            for i in range(0, 4)
+        ]
+        bound = self.invertBound(image.size, bound)
+
+        trimmedImage = image.crop(bound)
+        cleanedImage = PIL.Image.new(image.mode, image.size, 255)
+        cleanedImage.paste(trimmedImage, bound[:2])
+        diff = PIL.ImageChops.difference(cleanedImage, image)
+        if self._VerboseBound:
+            if not os.path.exists('dirts'):
+                os.mkdir('dirts')
+            if not os.path.exists('trimmed'):
+                os.mkdir('trimmed')
+            diff.save('dirts/%s' % name)
+            PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
+
+        diffs = 0
+        for count, color in diff.getcolors():
+            if color >= self.BLACK_THRESHOLD:
+                diffs = diffs + count
+
+        if diffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
+            self._Logger.warn('%s: Many dirts (%s)', name, diffs)
+        elif diffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
+            self._Logger.info('%s: Dirts (%s)', name, diffs)
+
+        if self._Whitespace == self.WHITESPACE_CLEAN:
+            return cleanedImage
+        elif self._Whitespace == self.WHITESPACE_TRIM:
+            return trimmedImage
+
+        return image
+
+
+    def detectBound(self, image, pxPerMm, name):
+        u"""画像の周辺の余白部分にあるゴミを削除した範囲を返す
+
+        モノクロ画像である前提とする。
+
+        * 具体的な数字はすべてチューニングパラメーターなので仮のもの。
+        * 余白部分にノイズがある場合、単純計算で余白を切り取ると、
+            ノイズが外辺にやってくる。
+            この状態で外辺を少し「削って」再び余白を計算すると、
+            余白が「増える」挙動が確認されるはずである。
+        * この「削る」(Skip)処理と、「増える」ことの検知(Detect)でノイズ判定を行う。
+        * 最外辺に対する処理
+            * 紙の境界によるノイズで、複数辺に同時にノイズが出ることが予期される。
+                このため、最外辺については特別な処理を行う。
+            * 最外辺で、0.5mm 以上の余白がない場合は外辺のノイズの可能性を考慮する。
+            * 余白がなかった辺について 1mm 削って再度余白チェックを行い、
+                余白が 5mm 以上増えたら外辺のノイズだと判断する。
+                これは複数辺に対して同時に実行する。
+        * 最外辺以外
+            * 各辺について、0.5mm 削り、それによって余白が 5mm 増えたらノイズだと判断する。
+            * ただし、罫線の可能性を考慮し、削った部分に印刷が1%未満であることも条件とする。
+        """
+        # 外辺でこれだけの余白(mm)がない場合はノイズがあると判断する
+        OUTER_MIN_MARGIN = 0.5
+        # 外辺での削る幅(Skip)と検知の幅(Detect) (mm)
+        OUTER_THRESHOLDS = (
+            (1.0, 3.0),
+        )
+        # 「本来の印刷がある」と判断する印刷の割合
+        PRINT_THRESHOLD = 0.01
+        # 外辺以外での削る幅(Skip)と検知の幅(Detect) (mm)
+        INNER_THRESHOLDS = (
+            (0.1, 1.0),
+            (0.2, 2.0),
+            (0.5, 5.0),
+        )
+
+        # 何らかの描画がある範囲の抽出
+        bound = PIL.ImageOps.invert(image).getbbox()
+        if not bound:
+            # 真っ白なページ
+            return None
+        bound = self.invertBound(image.size, bound)
+
+        # 外辺の余白が一定未満の場合、ノイズと判定する。
+        outerDirtSuspect = [
+            bound[i] < pxPerMm[i % 2] * OUTER_MIN_MARGIN
+            for i in range(0, 4)
+        ]
+        if any(outerDirtSuspect):
+            self._Logger.debug(
+                '%s: outer dirt suspection: %s, %s',
+                name,
+                outerDirtSuspect,
+                bound,
+            )
+            for skip, detect in OUTER_THRESHOLDS:
+                # ノイズの疑いがある外辺を狭めて再度余白チェックする
+                testBound = [
+                    bound[i] + (0 if not outerDirtSuspect[i] else int(pxPerMm[i % 2] * skip))
+                    for i in range(0, 4)
+                ]
+                testBound = self.invertBound(image.size, testBound)
+
+                trimmedImage = image.crop(testBound)
+                trimmedBound = PIL.ImageOps.invert(trimmedImage).getbbox()
+                if not trimmedBound:
+                    # 真っ白なページ
+                    return None
+                trimmedBound = self.invertBound(trimmedImage.size, trimmedBound)
+                outerDirtDetect = [
+                    trimmedBound[i] > pxPerMm[i % 2] * detect
+                    for i in range(0, 4)
+                ]
+                if any(outerDirtDetect):
+                    self._Logger.warn(
+                        '%s: Detect outer dirts: %s %s %s',
+                        name,
+                        outerDirtDetect,
+                        bound,
+                        trimmedBound,
+                    )
+                    trimBound = [
+                        0 if not outerDirtDetect[i] else int(pxPerMm[i % 2] * skip)
+                        for i in range(0, 4)
+                    ]
+                    trimBound = self.invertBound(image.size, trimBound)
+                    trimmedImage = image.crop(trimBound)
+                    image = PIL.Image.new(image.mode, image.size, 255)
+                    image.paste(trimmedImage, trimBound[:2])
+                    break
+
+        # 左辺、上辺、右辺、下辺のそれぞれについてノイズテストを行って幅を狭める
+        for target in range(0, 4):
+            while True:
+                # 更新がある間繰り返す。
+                updated = False
+
+                # 現時点の何らかの描画がある範囲の抽出
+                bound = PIL.ImageOps.invert(image).getbbox()
+                if not bound:
+                    # 真っ白なページ
+                    # ここに来る前に return していないとおかしい
+                    self._Logger.warn('%s: Unexpected white page', name)
+                    return None
+                # 印刷量検知
+                if target == 0:
+                    testPrint = image.crop((bound[0], bound[1], bound[0] + 1, bound[3]))
+                elif target == 1:
+                    testPrint = image.crop((bound[0], bound[1], bound[2], bound[1] + 1))
+                elif target == 2:
+                    testPrint = image.crop((bound[2] - 1, bound[1], bound[2], bound[3]))
+                else:
+                    testPrint = image.crop((bound[0], bound[3] - 1, bound[2], bound[3]))
+
+                points = 0
+                blacks = 0
+                for count, color in PIL.ImageOps.invert(testPrint).getcolors():
+                    points = points + count
+                    if color >= self.BLACK_THRESHOLD:
+                        blacks = blacks + count
+
+                bound = self.invertBound(image.size, bound)
+
+                for skip, detect in INNER_THRESHOLDS:
+                    # テスト対象の幅を変更する
+                    testBound = [bound[i] for i in range(0, 4)]
+                    testBound[target] = testBound[target] + int(pxPerMm[target % 2] * skip)
+                    testBound = self.invertBound(image.size, testBound)
+                    trimmedImage = image.crop(testBound)
+                    trimmedBound = PIL.ImageOps.invert(trimmedImage).getbbox()
+                    if not trimmedBound:
+                        # 真っ白なページ
+                        return None
+                    trimmedBound = self.invertBound(trimmedImage.size, trimmedBound)
+
+                    if trimmedBound[target] > pxPerMm[target % 2] * detect:
+                        # 汚れと判定
+                        self._Logger.debug('%s (%s): detect dirt: %s', name, target, trimmedBound)
+
+                        if blacks > points * PRINT_THRESHOLD:
+                            # 一定以上の印刷があるのでノイズではないと判定
+                            self._Logger.info(
+                                '%s: Doubt dirt in direction %s, but ignored as much prints: %s / %s',
+                                name,
+                                target,
+                                blacks,
+                                points,
+                            )
+                            break
+
+                        image = PIL.Image.new(image.mode, image.size, 255)
+                        image.paste(trimmedImage, testBound[:2])
+                        updated = True
+                        break
+                    elif trimmedBound[target] > 0:
+                        self._Logger.debug('%s (%s): detected but not dirt: %s', name, target, trimmedBound)
+
+                if updated:
+                    continue
+                break
+
+        return PIL.ImageOps.invert(image).getbbox()
+
+    def invertBound(self, size, bound):
+        return [
+            bound[0],
+            bound[1],
+            size[0] - bound[2],
+            size[1] - bound[3],
+        ]

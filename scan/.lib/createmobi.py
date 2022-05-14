@@ -13,6 +13,7 @@ from xml.dom import minidom
 import shutil
 import subprocess
 import tempfile
+import time
 import zipfile
 
 
@@ -98,6 +99,7 @@ class ZipToMobi(object):
             self._Logger.info('Creating: %s', toDir)
             os.makedirs(toDir)
 
+        epubScanStartTime = time.time()
         fd, tmpFile = tempfile.mkstemp(suffix='.epub')
         os.close(fd)
         with zipfile.ZipFile(fromFile, 'r') as rh, zipfile.ZipFile(tmpFile, 'w') as wh:
@@ -136,6 +138,7 @@ class ZipToMobi(object):
 
             self._Optimizer.prepare_optimize()
 
+            epubGenerateStartTime = time.time()
             for f in rh.infolist():
                 if f.filename.endswith('/'):
                     continue
@@ -185,6 +188,7 @@ class ZipToMobi(object):
                 self._CreateMetadata(file, fileList, metadata),
             )
 
+        mobiGenerateStartTime = time.time()
         tmpMobiFile = tmpFile + '.mobi'
         tmpFileToUse = tmpFile
         if os.path.isdir('/cygdrive'):
@@ -222,6 +226,8 @@ class ZipToMobi(object):
         self._Logger.debug('stdout from kindlegen: %s', stdout)
         self._Logger.debug('stderr from kindlegen: %s', stderr)
 
+        mobiGenerateEndTime = time.time()
+
         if not self._PreserveEpub:
             os.unlink(tmpFile)
         else:
@@ -239,6 +245,13 @@ class ZipToMobi(object):
         os.unlink(tmpMobiFile)
 
         os.rename(tmpFile, toFile)
+        self._Logger.info(
+            'Done took %ss (Prescan: %ss,  Epub: %ss Epub to Mobi: %ss',
+            int(mobiGenerateEndTime - epubScanStartTime),
+            int(epubGenerateStartTime - epubScanStartTime),
+            int(mobiGenerateStartTime - epubGenerateStartTime),
+            int(mobiGenerateEndTime - mobiGenerateStartTime),
+        )
         return {
             'filename': filename,
             'path': toFile,
@@ -375,5 +388,5 @@ if __name__ == '__main__':
         whitespace=imageoptimizer.ImageOptimizer.WHITESPACE_CLEAN,
         verboseBound=True,
     )
-    copier = ZipToMobi(optimizer, preseveEpub=True)
+    copier = ZipToMobi(optimizer)
     copier(file, '.', opts)
