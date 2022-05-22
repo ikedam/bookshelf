@@ -23,7 +23,10 @@ class ImageOptimizer(object):
     # 検出した描画範囲からの安全のために確保するマージン (mm)
     BOUND_MARGIN = 1.0
     IGNORE_SAMPLES = 5
-    BLACK_THRESHOLD = 30
+    # 汚れがあったと検知する色の閾値
+    DIRT_BLACK_THRESHOLD = 30
+    # 印刷と判断する色の閾値
+    PRINT_BLACK_THRESHOLD = 120
     DIFF_THRESHOLD_INFO = 10.0 / 758 / 1024
     DIFF_THRESHOLD_WARN = 100.0 / 758 / 1024
     DIFF_THRESHOLD = 200.0 / 758 / 1024
@@ -33,12 +36,13 @@ class ImageOptimizer(object):
     # 基本名 連番 . 拡張子
     FILENAME_PARSER = re.compile(r'^(.*?)(\d+)\..*?$')
 
-    def __init__(self, whitespace, percentile=95, boldize=True, verboseBound=False):
+    def __init__(self, whitespace, percentile=95, boldize=True, verboseBound=False, traceBound=False):
         self._Logger = logging.getLogger(self.__class__.__name__)
         self._Whitespace = whitespace
         self._Boldize = boldize
         self._Percentile = percentile
         self._VerboseBound = verboseBound
+        self._TraceBound = traceBound
         # 本の開く向き
         # 縦書き (右から左に開く) をデフォルトにする
         self._LTR = False
@@ -63,7 +67,7 @@ class ImageOptimizer(object):
         whites = 0
         blacks = 0
         for count, color in image.getcolors():
-            if color < self.BLACK_THRESHOLD:
+            if color < self.PRINT_BLACK_THRESHOLD:
                 blacks = blacks + count
             else:
                 whites = whites + count
@@ -318,25 +322,28 @@ class ImageOptimizer(object):
                     cleanedImage = PIL.Image.new(image.mode, image.size, 255)
                     cleanedImage.paste(trimmedImage, bound[:2])
                     diff = PIL.ImageChops.difference(cleanedImage, image)
-                    diffs = 0
+                    graydiffs = 0
+                    blackdiffs = 0
                     for count, color in diff.getcolors():
-                        if color >= self.BLACK_THRESHOLD:
-                            diffs = diffs + count
-                    if diffs < self.DIFF_THRESHOLD * image.size[0] * image.size[1]:
-                        if diffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
-                            self._Logger.warn('%s: Many dirts (%s)', name, diffs)
+                        if color >= self.DIRT_BLACK_THRESHOLD:
+                            graydiffs = graydiffs + count
+                        if color >= self.PRINT_BLACK_THRESHOLD:
+                            blackdiffs = blackdiffs + count
+                    if graydiffs < self.DIFF_THRESHOLD * image.size[0] * image.size[1]:
+                        if graydiffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
+                            self._Logger.warn('%s: Many dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
                             if self._VerboseBound:
                                 if not os.path.exists('dirts'):
                                     os.mkdir('dirts')
                                 diff.save('dirts/%s' % name)
-                        elif diffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
-                            self._Logger.info('%s: Dirts (%s)', name, diffs)
+                        elif graydiffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
+                            self._Logger.info('%s: Dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
                         if self._Whitespace == self.WHITESPACE_CLEAN:
                             image = cleanedImage
                         elif self._Whitespace == self.WHITESPACE_TRIM:
                             image = trimmedImage
                     else:
-                        self._Logger.warn('%s: Too many dirts and not cleaned (%s)', name, diffs)
+                        self._Logger.warn('%s: Too many dirts and not cleaned (gray %s / black %s)', name, graydiffs, blackdiffs)
                         if self._VerboseBound:
                             if not os.path.exists('dirts'):
                                 os.mkdir('dirts')
@@ -403,10 +410,21 @@ class ImageOptimizer(object):
             for i in range(0, 2)
         ]
 
+        if self._VerboseBound:
+            if not os.path.exists('verbose'):
+                os.mkdir('verbose')
+
         # ある程度薄い色は無視する
-        boundImage = image.point(lambda x: 255 if x > 100  else x)
+        boundImage = image.point(lambda x: 255 if x > self.PRINT_BLACK_THRESHOLD  else x)
+        if self._TraceBound:
+            if not os.path.exists('verbose/bound'):
+                os.mkdir('verbose/bound')
+            boundImage.save('verbose/bound/%s' % name)
         bound = PIL.ImageOps.invert(boundImage).getbbox()
         detectBound = self.detectBound(boundImage, pxPerMm, name)
+
+        if self._TraceBound:
+            self._Logger.debug('  update bound: %s -> %s', bound, detectBound)
 
         if not detectBound:
             # 真っ白なページ
@@ -419,9 +437,9 @@ class ImageOptimizer(object):
             if bound and self._VerboseBound:
                 # ノイズ除去の結果白いページになった
                 diff = PIL.ImageChops.difference(image, whitepage)
-                if not os.path.exists('dirts'):
-                    os.mkdir('dirts')
-                diff.save('dirts/%s' % name)
+                if not os.path.exists('verbose/dirts'):
+                    os.mkdir('verbose/dirts')
+                diff.save('verbose/dirts/%s' % name)
             return whitepage
 
         boundDiff = [
@@ -443,24 +461,28 @@ class ImageOptimizer(object):
         cleanedImage.paste(trimmedImage, bound[:2])
         diff = PIL.ImageChops.difference(cleanedImage, image)
 
-        diffs = 0
+        graydiffs = 0
+        blackdiffs = 0
         for count, color in diff.getcolors():
-            if color >= self.BLACK_THRESHOLD:
-                diffs = diffs + count
+            if color >= self.DIRT_BLACK_THRESHOLD:
+                graydiffs = graydiffs + count
+            if color >= self.PRINT_BLACK_THRESHOLD:
+                blackdiffs = blackdiffs + count
 
         if self._VerboseBound:
-            if diffs > 0:
-                if not os.path.exists('dirts'):
-                    os.mkdir('dirts')
-                diff.save('dirts/%s' % name)
-            if not os.path.exists('trimmed'):
-                os.mkdir('trimmed')
-            PIL.ImageOps.invert(trimmedImage).save('trimmed/%s' % name)
+            if graydiffs > 0:
+                self._Logger.debug('%s: dirts gray %s black %s', name, graydiffs, blackdiffs)
+                if not os.path.exists('verbose/dirts'):
+                    os.mkdir('verbose/dirts')
+                diff.save('verbose/dirts/%s' % name)
+            if not os.path.exists('verbose/trimmed'):
+                os.mkdir('verbose/trimmed')
+            PIL.ImageOps.invert(trimmedImage).save('verbose/trimmed/%s' % name)
 
-        if diffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
-            self._Logger.warn('%s: Many dirts (%s)', name, diffs)
-        elif diffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
-            self._Logger.info('%s: Dirts (%s)', name, diffs)
+        if graydiffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
+            self._Logger.warn('%s: Many dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
+        elif graydiffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
+            self._Logger.info('%s: Dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
 
         if self._Whitespace == self.WHITESPACE_CLEAN:
             return cleanedImage
@@ -504,7 +526,7 @@ class ImageOptimizer(object):
         INNER_THRESHOLDS = (
             (0.1, 1.0),
             (0.2, 2.0),
-            (0.5, 5.0),
+            (0.5, 3.0),
         )
 
         # 何らかの描画がある範囲の抽出
@@ -513,10 +535,13 @@ class ImageOptimizer(object):
             # 真っ白なページ
             return None
         bound = self.invertBound(image.size, bound)
+        boundMm = self.toMm(bound, pxPerMm)
+        if self._TraceBound:
+            self._Logger.debug('  Initial blanks: %s', boundMm)
 
         # 外辺の余白が一定未満の場合、ノイズと判定する。
         outerDirtSuspect = [
-            bound[i] < pxPerMm[i % 2] * OUTER_MIN_MARGIN
+            boundMm[i] < OUTER_MIN_MARGIN
             for i in range(0, 4)
         ]
         if any(outerDirtSuspect):
@@ -524,38 +549,50 @@ class ImageOptimizer(object):
                 '%s: outer dirt suspection: %s, %s',
                 name,
                 outerDirtSuspect,
-                bound,
+                boundMm,
             )
             for skip, detect in OUTER_THRESHOLDS:
                 # ノイズの疑いがある外辺を狭めて再度余白チェックする
-                testBound = [
-                    bound[i] + (0 if not outerDirtSuspect[i] else int(pxPerMm[i % 2] * skip))
+                testBoundMm = [
+                    0 if not outerDirtSuspect[i] else skip
                     for i in range(0, 4)
                 ]
-                testBound = self.invertBound(image.size, testBound)
+                if self._TraceBound:
+                    self._Logger.debug('  Try detect outer dirts with %s, %s, %s', skip, detect, testBoundMm)
+                testBound = self.toPx(testBoundMm, pxPerMm)
 
-                trimmedImage = image.crop(testBound)
+                # 演算誤差による誤検出を避けるため、一度もとの範囲で切り取って、
+                # その後に狭めた分で切り取る。
+                trimmedImage = image.crop(self.invertBound(image.size, bound))
+                testBound = self.invertBound(trimmedImage.size, testBound)
+                trimmedImage = trimmedImage.crop(testBound)
                 trimmedBound = PIL.ImageOps.invert(trimmedImage).getbbox()
                 if not trimmedBound:
                     # 真っ白なページ
+                    if self._TraceBound:
+                        self._Logger.debug('  Results white page')
                     return None
                 trimmedBound = self.invertBound(trimmedImage.size, trimmedBound)
+                trimmedBoundMm = self.toMm(trimmedBound, pxPerMm)
+                if self._TraceBound:
+                    self._Logger.debug('  New blanks %s', trimmedBoundMm)
                 outerDirtDetect = [
-                    trimmedBound[i] > pxPerMm[i % 2] * detect
+                    trimmedBoundMm[i] > detect
                     for i in range(0, 4)
                 ]
                 if any(outerDirtDetect):
                     self._Logger.warn(
-                        '%s: Detect outer dirts: %s %s %s',
+                        '%s: Detected outer dirts: %s %s %s',
                         name,
                         outerDirtDetect,
-                        bound,
-                        trimmedBound,
+                        boundMm,
+                        trimmedBoundMm,
                     )
-                    trimBound = [
-                        0 if not outerDirtDetect[i] else int(pxPerMm[i % 2] * skip)
+                    trimBoundMm = [
+                        0 if not outerDirtDetect[i] else skip
                         for i in range(0, 4)
                     ]
+                    trimBound = self.toPx(trimBoundMm, pxPerMm)
                     trimBound = self.invertBound(image.size, trimBound)
                     trimmedImage = image.crop(trimBound)
                     image = PIL.Image.new(image.mode, image.size, 255)
@@ -564,6 +601,8 @@ class ImageOptimizer(object):
 
         # 左辺、上辺、右辺、下辺のそれぞれについてノイズテストを行って幅を狭める
         for target in range(0, 4):
+            if self._TraceBound:
+                self._Logger.debug('Detecting dirts in direction %s', target)
             while True:
                 # 更新がある間繰り返す。
                 updated = False
@@ -589,24 +628,39 @@ class ImageOptimizer(object):
                 blacks = 0
                 for count, color in PIL.ImageOps.invert(testPrint).getcolors():
                     points = points + count
-                    if color >= self.BLACK_THRESHOLD:
+                    if color >= self.DIRT_BLACK_THRESHOLD:
                         blacks = blacks + count
 
+                if self._TraceBound:
+                    self._Logger.debug('  blacks / points = %s / %s (%.3f)', blacks, points, (float(blacks) / points))
+
                 bound = self.invertBound(image.size, bound)
+                boundMm = self.toMm(bound, pxPerMm)
 
                 for skip, detect in INNER_THRESHOLDS:
-                    # テスト対象の幅を変更する
-                    testBound = [bound[i] for i in range(0, 4)]
-                    testBound[target] = testBound[target] + int(pxPerMm[target % 2] * skip)
-                    testBound = self.invertBound(image.size, testBound)
-                    trimmedImage = image.crop(testBound)
+                    if self._TraceBound:
+                        self._Logger.debug(' Try detect with skip=%s detect=%s', skip, detect)
+                    testBoundMm = [0] * 4
+                    testBoundMm[target] = skip
+                    testBound = self.toPx(testBoundMm, pxPerMm)
+
+                    # 演算誤差による誤検出を避けるため、一度もとの範囲で切り取って、
+                    # その後に狭めた分で切り取る。
+                    trimmedImage = image.crop(self.invertBound(image.size, bound))
+                    testBound = self.invertBound(trimmedImage.size, testBound)
+                    trimmedImage = trimmedImage.crop(testBound)
                     trimmedBound = PIL.ImageOps.invert(trimmedImage).getbbox()
                     if not trimmedBound:
                         # 真っ白なページ
+                        if self._TraceBound:
+                            self._Logger.debug('  Results white page')
                         return None
                     trimmedBound = self.invertBound(trimmedImage.size, trimmedBound)
+                    trimmedBoundMm = self.toMm(trimmedBound, pxPerMm)
+                    if self._TraceBound:
+                        self._Logger.debug('  New blanks %s', trimmedBoundMm)
 
-                    if trimmedBound[target] > pxPerMm[target % 2] * detect:
+                    if trimmedBoundMm[target] > detect:
                         # 汚れと判定
                         self._Logger.debug('%s (%s): detect dirt: %s', name, target, trimmedBound)
 
@@ -622,11 +676,23 @@ class ImageOptimizer(object):
                             break
 
                         image = PIL.Image.new(image.mode, image.size, 255)
-                        image.paste(trimmedImage, testBound[:2])
+                        image.paste(
+                            trimmedImage,
+                            (
+                                bound[0] + testBound[0],
+                                bound[1] + testBound[1],
+                            ),
+                        )
                         updated = True
                         break
-                    elif trimmedBound[target] > 0:
-                        self._Logger.debug('%s (%s): detected but not dirt: %s', name, target, trimmedBound)
+                    elif trimmedBoundMm[target] > 0.5:
+                        self._Logger.debug(
+                            '%s (%s): detected but not dirt with skip %s: %s',
+                            name,
+                            target,
+                            skip,
+                            trimmedBoundMm,
+                        )
 
                 if updated:
                     continue
@@ -641,3 +707,40 @@ class ImageOptimizer(object):
             size[0] - bound[2],
             size[1] - bound[3],
         ]
+
+    def toMm(self, metrics, pxPerMm):
+        return [
+            m / pxPerMm[i % 2]
+            for i, m in enumerate(metrics)
+        ]
+
+    def toPx(self, metrics, pxPerMm):
+        return [
+            int(m * pxPerMm[i % 2])
+            for i, m in enumerate(metrics)
+        ]
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('file')
+    opts = parser.parse_args()
+    level = logging.DEBUG
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)s: %(message)s',
+        level=level,
+    )
+
+    optimizer = ImageOptimizer(
+        whitespace=ImageOptimizer.WHITESPACE_CLEAN,
+        verboseBound=True,
+        traceBound=True,
+    )
+
+    with open(opts.file, 'rb') as infh:
+        import io
+        optimizer.optimize(
+            os.path.basename(opts.file),
+            infh,
+            io.BytesIO(),
+        )
