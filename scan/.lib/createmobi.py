@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import calendar
 import collections
 import datetime
 import io
@@ -21,13 +22,14 @@ class ZipToMobi(object):
     VERSION = 1559310345
     SIZE = (758, 1024)
 
-    def __init__(self, optimizer, skip=False, preseveEpub=False, skipMobi=False):
+    def __init__(self, optimizer, skip=False, preseveEpub=False, skipMobi=False, s3Bucket=None):
         self._Logger = logging.getLogger(self.__class__.__name__)
         self._count = 0
         self._skip = skip
         self._Optimizer = optimizer
         self._PreserveEpub = preseveEpub
         self._SkipMobi = skipMobi
+        self._S3Bucket = s3Bucket
 
         self._kindlegen = self.find_executable('kindlegen')
 
@@ -258,10 +260,80 @@ class ZipToMobi(object):
             int(mobiGenerateStartTime - epubGenerateStartTime),
             int(mobiGenerateEndTime - mobiGenerateStartTime),
         )
+
+        if self._S3Bucket:
+            self._UploadToS3(self._S3Bucket, file)
+
         return {
             'filename': filename,
             'path': toFile,
         }
+
+    def _UploadToS3(self, bucket, file):
+        object = bucket.Object(file['relative'])
+        if not self._CheckUploadToS3(object, file):
+            return
+        self._Logger.info('Uploading to s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        startTime = time.time()
+        import botocore
+        retry = 0
+        while True:
+            try:
+                object.upload_file(file['path'])
+            except botocore.exceptions.ClientError as e:
+                if retry < 3:
+                    retry = retry + 1
+                    self._Logger.warn(
+                        'Uploading to s3://%s/%s failed. Retrying...: %s',
+                        object.bucket_name.encode('utf-8'),
+                        object.key,
+                        e,
+                    )
+                    continue
+                raise
+            break
+        endTime = time.time()
+        self._Logger.info(
+            'Done took %ss',
+            int(endTime - startTime),
+        )
+
+    def _CheckUploadToS3(self, object, file):
+        self._Logger.debug('Checking s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        import botocore
+        retry = 0
+        while True:
+            try:
+                object.load()
+            except botocore.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    self._Logger.info('Not found')
+                    return True
+                if retry < 3:
+                    retry = retry + 1
+                    self._Logger.warn(
+                        'Checking s3://%s/%s failed. Retrying...: %s',
+                        object.bucket_name.encode('utf-8'),
+                        object.key,
+                        e,
+                    )
+                    continue
+                raise
+            break
+        s3mtime = int(calendar.timegm(object.last_modified.utctimetuple()))
+        if file['mtime'] <= s3mtime:
+            self._Logger.debug(
+                'S3 is newer: S3 %s > filesystem %s',
+                s3mtime,
+                file['mtime'],
+            )
+            return False
+        self._Logger.info(
+            'S3 is older: S3 %s < filesystem %s',
+            s3mtime,
+            file['mtime'],
+        )
+        return True
 
     def _CreateContainer(self):
         doc = minidom.Document()
@@ -379,24 +451,31 @@ if __name__ == '__main__':
         format='%(asctime)s %(levelname)s: %(message)s',
         level=level,
     )
+    for name in ['boto3', 'botocore', 's3transfer', 'urllib3']:
+        logging.getLogger(name).setLevel(logging.WARNING)
     REG_AUTH_TITLE = re.compile(r'^(\[([^\]]+)\]\s*(.*))\.(?:zip|ZIP)$')
     m = REG_AUTH_TITLE.match(os.path.basename(opts.zipfile))
     if not m:
         logging.error('Invalid zip file: %s', opts.zipfile)
+    stat = os.stat(opts.zipfile)
     file =  {
         'path': opts.zipfile,
+        'relative': os.path.join(m.group(2), os.path.basename(opts.zipfile)),
         'basename': m.group(1),
         'author': m.group(2),
         'title': m.group(3),
-        'mtime': 0,
+        'mtime': stat.st_mtime,
     }
     import imageoptimizer
     optimizer = imageoptimizer.ImageOptimizer(
         whitespace=imageoptimizer.ImageOptimizer.WHITESPACE_CLEAN,
         verboseBound=True,
     )
+    import s3
+    s3info = s3.getS3Info()
     copier = ZipToMobi(
         optimizer,
         skipMobi=opts.skipMobi,
+        s3Bucket=s3info.getBucket('novel'),
     )
     copier(file, '.', opts)

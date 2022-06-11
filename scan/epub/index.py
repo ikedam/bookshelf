@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import os
+import os.path
 import sys
 
 sys.path.append(os.path.join(
@@ -18,6 +19,7 @@ import createepub
 import createmobi
 import imageoptimizer
 import indextool
+import s3
 
 
 if __name__ == '__main__':
@@ -36,13 +38,18 @@ if __name__ == '__main__':
         format='%(asctime)s %(levelname)s: %(message)s',
         level=level,
     )
+    for name in ['boto3', 'botocore', 's3transfer', 'urllib3']:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+    s3info = s3.getS3Info()
+
     indexer = indextool.Indexer()
     optimizer = imageoptimizer.ImageOptimizer(
         whitespace=imageoptimizer.ImageOptimizer.WHITESPACE_CLEAN,
     )
     copier = [createepub.ZipToKepubEpub(optimizer)]
     if opts.mobi:
-        copier.append(createmobi.ZipToMobi(optimizer))
+        copier.append(createmobi.ZipToMobi(optimizer, s3Bucket=s3info.getBucket('novel')))
     else:
         copier.append(createmobi.ZipToMobi(None, skip=True))
     for c in copier:
@@ -73,7 +80,7 @@ if __name__ == '__main__':
         )
         copier = [createepub.ZipToKepubEpub(optimizer)]
         if opts.mobi:
-            copier.append(createmobi.ZipToMobi(optimizer))
+            copier.append(createmobi.ZipToMobi(optimizer, s3Bucket=s3info.getBucket('comic')))
         else:
             copier.append(createmobi.ZipToMobi(skip=True))
         generator = indextool.CopyingIndexGenerator(

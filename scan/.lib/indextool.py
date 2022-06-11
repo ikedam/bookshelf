@@ -152,6 +152,14 @@ class IndexScanner(object):
           self._Ignores = [line.rstrip() for line in open(file).readlines()]
 
     def scan(self, generator, title, dir, controllerPath, opts):
+        return self._scanImpl(generator, title, dir, '', controllerPath, opts)
+
+    def _scanImpl(self, generator, title, root, relative, controllerPath, opts):
+        if relative:
+            dir = os.path.join(root, relative)
+        else:
+            dir = root
+
         self._Logger.debug('%s', dir)
         subdirList = []
         fileList = []
@@ -159,7 +167,11 @@ class IndexScanner(object):
         for entry in os.listdir(dir):
             if entry.startswith('.'):
                 continue
-            path = os.path.join(dir, entry)
+            if relative:
+                relativePath = os.path.join(relative, entry)
+            else:
+                repativePath = entry
+            path = os.path.join(root, repativePath)
             if os.path.isdir(path):
                 match = self.FILENAME_PARSER.search(entry)
                 if match:
@@ -168,6 +180,7 @@ class IndexScanner(object):
                         'index': self._Indexer(entry, is_dir=True),
                         'basename': entry,
                         'path': path,
+                        'relative': relativePath,
                         'author': match.group(1),
                         'title': match.group(2),
                         'series': match.group(3),
@@ -179,6 +192,7 @@ class IndexScanner(object):
                         'index': self._Indexer(entry, is_dir=True),
                         'basename': entry,
                         'path': path,
+                        'relative': relativePath,
                         'author': None,
                         'title': entry,
                         'series': entry,
@@ -195,6 +209,7 @@ class IndexScanner(object):
                         'index': self._Indexer(entry),
                         'basename': basename,
                         'path': path,
+                        'relative': relativePath,
                         'author': match.group(1),
                         'title': match.group(2),
                         'series': match.group(3),
@@ -207,6 +222,7 @@ class IndexScanner(object):
                         'index': self._Indexer(entry),
                         'basename': basename,
                         'path': path,
+                        'relative': relativePath,
                         'author': None,
                         'title': basename,
                         'series': basename,
@@ -227,10 +243,11 @@ class IndexScanner(object):
 
         newSubdirList = []
         for subdir in subdirList:
-            result = self.scan(
+            result = self._scanImpl(
                 generator,
                 subdir['filename'],
-                subdir['path'],
+                root,
+                subdir['relative'],
                 '../{0}'.format(controllerPath),
                 opts,
             )
