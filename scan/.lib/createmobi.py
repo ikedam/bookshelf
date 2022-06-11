@@ -183,6 +183,9 @@ class ZipToMobi(object):
 
             if metadataFile is not None and not metadata:
                 metadata = json.loads(rh.read(metadataFile))
+                if metadata.get('page-progression-direction') == 'ltr':
+                    self._Optimizer.setLTR()
+            self._Optimizer.report()
 
             wh.writestr(
                 'metadata.opf',

@@ -19,10 +19,15 @@ class ImageOptimizer(object):
     WHITESPACE_CLEAN = 1
     WHITESPACE_TRIM = 2
 
-    BOUND_LOWER = 100
+    # 外れ値検知の最低サンプル数
+    OUTLIERS_MIN_SAMPLES = 20
+    # 外れ値検知の際に無視する先頭・末尾ページ数。
+    # 通常、先頭ページ/末尾ページは平均的な印刷領域の参考にならないのでスキップする。
+    OUTLIERS_IGNORE_SAMPLES = 5
+    # 外れ値とみなすズレ
+    OUTLIERS_DETECT_MM = 2.0
     # 検出した描画範囲からの安全のために確保するマージン (mm)
     BOUND_MARGIN = 1.0
-    IGNORE_SAMPLES = 5
     # 汚れがあったと検知する色の閾値
     DIRT_BLACK_THRESHOLD = 30
     # 印刷と判断する色の閾値
@@ -75,6 +80,7 @@ class ImageOptimizer(object):
 
     def reset(self, size=None):
         self._boundMap = {}
+        self._pageInfoMap = {}
         self._actualMmSizeList = []
         self._preferDivide = False
         self._size = size
@@ -199,38 +205,6 @@ class ImageOptimizer(object):
             self._boundMap[basename]['lboundList'].append(list(relativeBound) + [name])
         else:
             self._boundMap[basename]['rboundList'].append(list(relativeBound) + [name])
-
-    def _calculateBound(self, boundList):
-        size = len(boundList)
-
-        if size < self.BOUND_LOWER:
-            return None
-
-        start = self.IGNORE_SAMPLES
-        end = size - self.IGNORE_SAMPLES
-        lefts = [b[0] for b in boundList[start:end]]
-        tops = [b[1] for b in boundList[start:end]]
-        rights = [b[2] for b in boundList[start:end]]
-        bottoms = [b[3] for b in boundList[start:end]]
-
-        lefts.sort(reverse=True)
-        tops.sort(reverse=True)
-        rights.sort()
-        bottoms.sort()
-
-        bound = (
-            lefts[len(lefts) * self._Percentile // 100],
-            tops[len(tops) * self._Percentile // 100],
-            rights[len(rights) * self._Percentile // 100],
-            bottoms[len(bottoms) * self._Percentile // 100],
-        )
-        bound = (
-            bound[0],
-            bound[1],
-            bound[2],
-            bound[3],
-        )
-        return bound
 
     def prepare_optimize(self):
         if not self.need_prescan():
@@ -441,6 +415,26 @@ class ImageOptimizer(object):
                     os.mkdir('verbose/dirts')
                 diff.save('verbose/dirts/%s' % name)
             return whitepage
+
+        # ページの情報の集計
+        # ページは xxx0000.jpg のフォーマットになっていると仮定し、
+        # 偶数ページ、奇数ページで記録を取る。
+        match = self.FILENAME_PARSER.match(name)
+        if match:
+            basename = match.group(1)
+            pagenumber = int(match.group(2))
+            if basename not in self._pageInfoMap:
+                self._pageInfoMap[basename] = []
+            self._pageInfoMap[basename].append({
+                'name': name,
+                'pagenumber': pagenumber,
+                'bound': self.toMm(detectBound, pxPerMm),
+                'boundSize': self.toMm([
+                    detectBound[2] - detectBound[0],
+                    detectBound[3] - detectBound[1],
+                ], pxPerMm),
+                'size': self.toMm(image.size, pxPerMm),
+            })
 
         boundDiff = [
             (bound[i] - detectBound[i]) != 0
@@ -719,6 +713,129 @@ class ImageOptimizer(object):
             int(m * pxPerMm[i % 2])
             for i, m in enumerate(metrics)
         ]
+
+    def report(self):
+        u"""スキャン結果から外れデータを報告する"""
+        # 左側のページの決定
+        if self._LTR:
+            lPage = 0
+            rPage = 1
+        else:
+            lPage = 1
+            rPage = 0
+
+        for name, pageInfos in self._pageInfoMap.iteritems():
+            if len(pageInfos) < self.OUTLIERS_MIN_SAMPLES * 2:
+                # サンプル数が少なすぎるので処理対象外とする
+                self._Logger.debug('%s: too few samples, report skipped (%s)', name, len(pageInfos))
+                continue
+            expectedBoundSizeList = []
+            expectedBoundList = []
+            for i in range(2):
+                expectedBoundSizeList.append(self._calculateSizeFromSamples([
+                    info['boundSize'] for info in pageInfos if info['pagenumber'] % 2 == i
+                ]))
+                # 領域については以下のように扱う:
+                # X座標: 外側からの距離を基準に扱う。
+                #     つまり左側ページは左からの距離を、右側ページは右側からの距離。
+                #     つまり右側ページの際は左右を反転させて利用する
+                # Y座標: ページの中心からの距離を基準に扱う。
+                expectedBoundList.append(self._calculateBoundFromSamples([
+                    self._normalizeBound(info['size'], info['bound'], i == lPage)
+                    for info in pageInfos if info['pagenumber'] % 2 == i
+                ]))
+
+            self._Logger.debug('expected bound size: %s', expectedBoundSizeList)
+            self._Logger.debug('expected bound: %s', expectedBoundList)
+
+            for info in pageInfos:
+                p = info['pagenumber'] % 2
+                expectedBoundSize = expectedBoundSizeList[p]
+                expectedBound = self._denormalizeBound(info['size'], expectedBoundList[p], p == lPage)
+                bound = self.invertBound(info['size'], info['bound'])
+                expectedBound = self.invertBound(info['size'], expectedBound)
+                if bound and self._VerboseBound:
+                    self._Logger.debug('%s: size      : %s', info['name'], info['size'])
+                    self._Logger.debug('%s: bound size: %s', info['name'], info['boundSize'])
+                    self._Logger.debug('%s:   expected: %s', info['name'], expectedBoundSize)
+                    self._Logger.debug('%s: bound     : %s', info['name'], info['bound'])
+                    self._Logger.debug('%s:   expected: %s', info['name'], expectedBound)
+                for i, mark in ((0, 'width'), (1, 'height')):
+                    if info['boundSize'][i] - expectedBoundSize[i] > self.OUTLIERS_DETECT_MM:
+                        self._Logger.warn(
+                            '%s: print %s is larger than other pages: %.1fmm',
+                            info['name'],
+                            mark,
+                            info['boundSize'][i] - expectedBoundSize[i],
+                        )
+                for i, mark in ((0, 'left'), (1, 'top'), (2, 'right'), (3, 'bottom')):
+                    if expectedBound[i] - bound[i] > self.OUTLIERS_DETECT_MM:
+                        self._Logger.warn(
+                            '%s: %s bound is outer than other pages: %.1fmm',
+                            info['name'],
+                            mark,
+                            expectedBound[i] - bound[i],
+                        )
+
+    def _calculateSizeFromSamples(self, valueList):
+        u"""サンプルから想定されるサイズを算定する"""
+        start = self.OUTLIERS_IGNORE_SAMPLES
+        end = len(valueList) - self.OUTLIERS_IGNORE_SAMPLES
+        result = []
+        for i in range(2):
+            values = [v[i] for v in valueList[start:end]]
+            # 包含範囲が広い大きい値を採用する。なので昇順ソート。
+            values.sort()
+            result.append(values[len(values) * self._Percentile // 100])
+        return result
+
+    def _calculateBoundFromSamples(self, valueList):
+        u"""サンプルから想定される領域を算定する"""
+        start = self.OUTLIERS_IGNORE_SAMPLES
+        end = len(valueList) - self.OUTLIERS_IGNORE_SAMPLES
+        result = []
+        for i in range(4):
+            values = [v[i] for v in valueList[start:end]]
+            # left, top はより外側の値 = 小さい値を採用する。なので降順ソート。
+            # right, bottom はより外側の値 = 大きい値を採用する。なので昇順ソート。
+            values.sort(reverse=(i < 2))
+            result.append(values[len(values) * self._Percentile // 100])
+        return result
+
+    def _normalizeBound(self, size, bound, isL):
+        vCenter = size[1] / 2
+        if isL:
+            return [
+                bound[0],
+                bound[1] - vCenter,
+                bound[2],
+                bound[3] - vCenter,
+            ]
+        else:
+            return [
+                size[0] - bound[2],
+                bound[1] - vCenter,
+                size[0] - bound[0],
+                bound[3] - vCenter,
+            ]
+
+    def _denormalizeBound(self, size, bound, isL):
+        vCenter = size[1] / 2
+        if isL:
+            return [
+                bound[0],
+                bound[1] + vCenter,
+                bound[2],
+                bound[3] + vCenter,
+            ]
+        else:
+            return [
+                size[0] - bound[2],
+                bound[1] + vCenter,
+                size[0] - bound[0],
+                bound[3] + vCenter,
+            ]
+
 
 if __name__ == '__main__':
     import argparse
