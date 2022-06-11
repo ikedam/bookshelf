@@ -407,7 +407,7 @@ class ImageOptimizer(object):
                     for i in range(0, 4)
                 ]
                 if any(outerDirtDetect):
-                    self._Logger.warn(
+                    self._Logger.debug(
                         '%s: Detected outer dirts: %s %s %s',
                         name,
                         outerDirtDetect,
