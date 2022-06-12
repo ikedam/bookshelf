@@ -170,8 +170,8 @@ class IndexScanner(object):
             if relative:
                 relativePath = os.path.join(relative, entry)
             else:
-                repativePath = entry
-            path = os.path.join(root, repativePath)
+                relativePath = entry
+            path = os.path.join(root, relativePath)
             if os.path.isdir(path):
                 match = self.FILENAME_PARSER.search(entry)
                 if match:

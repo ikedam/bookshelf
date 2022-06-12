@@ -99,7 +99,7 @@ class ZipToMobi(object):
         self._Logger.info('Converting %s -> %s', fromFile, toFile)
 
         if not os.path.exists(toDir):
-            self._Logger.info('Creating: %s', toDir)
+            self._Logger.info('  Creating: %s', toDir)
             os.makedirs(toDir)
 
         epubScanStartTime = time.time()
@@ -151,7 +151,7 @@ class ZipToMobi(object):
                     continue
                 ext = os.path.splitext(basename)[1]
                 if ext.lower() not in ('.jpg', '.jpeg'):
-                    self._Logger.warn('Skipped: %s', f.filename)
+                    self._Logger.warn('  Skipped: %s', f.filename)
                     continue
                 if self._Optimizer.divideMode:
                     w = (io.BytesIO(), io.BytesIO())
@@ -205,7 +205,7 @@ class ZipToMobi(object):
             ]).rstrip()
 
         if not self._SkipMobi:
-            self._Logger.debug('Launching %s', self._kindlegen)
+            self._Logger.debug('  Launching %s', self._kindlegen)
             cmd = [
                 self._kindlegen,
                 tmpFileToUse,
@@ -254,7 +254,7 @@ class ZipToMobi(object):
         mobiGenerateEndTime = time.time()
 
         self._Logger.info(
-            'Done took %ss (Prescan: %ss,  Epub: %ss Epub to Mobi: %ss',
+            '  Done took %ss (Prescan: %ss,  Epub: %ss Epub to Mobi: %ss',
             int(mobiGenerateEndTime - epubScanStartTime),
             int(epubGenerateStartTime - epubScanStartTime),
             int(mobiGenerateStartTime - epubGenerateStartTime),
@@ -273,7 +273,7 @@ class ZipToMobi(object):
         object = bucket.Object(file['relative'])
         if not self._CheckUploadToS3(object, file):
             return
-        self._Logger.info('Uploading to s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        self._Logger.info('  Uploading to s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
         startTime = time.time()
         import botocore
         retry = 0
@@ -284,7 +284,7 @@ class ZipToMobi(object):
                 if retry < 3:
                     retry = retry + 1
                     self._Logger.warn(
-                        'Uploading to s3://%s/%s failed. Retrying...: %s',
+                        '  Uploading to s3://%s/%s failed. Retrying...: %s',
                         object.bucket_name.encode('utf-8'),
                         object.key,
                         e,
@@ -294,12 +294,12 @@ class ZipToMobi(object):
             break
         endTime = time.time()
         self._Logger.info(
-            'Done took %ss',
+            '  Done took %ss',
             int(endTime - startTime),
         )
 
     def _CheckUploadToS3(self, object, file):
-        self._Logger.debug('Checking s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        self._Logger.debug('  Checking s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
         import botocore
         retry = 0
         while True:
@@ -307,12 +307,12 @@ class ZipToMobi(object):
                 object.load()
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == '404':
-                    self._Logger.info('Not found')
+                    self._Logger.debug('  Not found')
                     return True
                 if retry < 3:
                     retry = retry + 1
                     self._Logger.warn(
-                        'Checking s3://%s/%s failed. Retrying...: %s',
+                        '  Checking s3://%s/%s failed. Retrying...: %s',
                         object.bucket_name.encode('utf-8'),
                         object.key,
                         e,
@@ -323,13 +323,13 @@ class ZipToMobi(object):
         s3mtime = int(calendar.timegm(object.last_modified.utctimetuple()))
         if file['mtime'] <= s3mtime:
             self._Logger.debug(
-                'S3 is newer: S3 %s > filesystem %s',
+                '  S3 is newer: S3 %s > filesystem %s',
                 s3mtime,
                 file['mtime'],
             )
             return False
         self._Logger.info(
-            'S3 is older: S3 %s < filesystem %s',
+            '  S3 is older: S3 %s < filesystem %s',
             s3mtime,
             file['mtime'],
         )
@@ -441,7 +441,8 @@ class ZipToMobi(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', dest='verbose', action='count', default=0)
-    parser.add_argument('-M', dest='skipMobi', action='store_true', default=False)
+    parser.add_argument('-m', dest='mobi', action='store_true', default=False)
+    parser.add_argument('-s', dest='s3', action='store_true', default=False)
     parser.add_argument('zipfile')
     opts = parser.parse_args()
     level = logging.INFO
@@ -472,10 +473,13 @@ if __name__ == '__main__':
         verboseBound=True,
     )
     import s3
-    s3info = s3.getS3Info()
+    if opts.s3:
+        s3info = s3.getS3Info()
+    else:
+        s3info = s3.S3Info()
     copier = ZipToMobi(
         optimizer,
-        skipMobi=opts.skipMobi,
+        skipMobi=(not opts.mobi),
         s3Bucket=s3info.getBucket('novel'),
     )
     copier(file, '.', opts)
