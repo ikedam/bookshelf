@@ -38,6 +38,9 @@ class ImageOptimizer(object):
     DIVIDE_OVERWRAP = 0.05
     MM_PER_INCH = 25.4
 
+    # ボールド処理を行う dpi 数
+    BOLDIZE_DPI = 200
+
     # 基本名 連番 . 拡張子
     FILENAME_PARSER = re.compile(r'^(.*?)(\d+)\..*?$')
 
@@ -164,7 +167,12 @@ class ImageOptimizer(object):
 
         if image.mode == 'L':
             image = PIL.ImageOps.autocontrast(image)
-            if not self.is_black_image(image) and self._Boldize:
+            if (
+                not self.is_black_image(image)
+                and self._Boldize
+                and 'dpi' in image.info
+                and image.info['dpi'][0] <= self.BOLDIZE_DPI
+            ):
                 # モノクロ画像の場合、ボールド処理を行う
                 # 単純な MinFilter では太くなりすぎる
                 # image = image.filter(PIL.ImageFilter.MinFilter(3))
@@ -353,6 +361,7 @@ class ImageOptimizer(object):
             (0.1, 1.0),
             (0.2, 2.0),
             (0.5, 3.0),
+            (1.0, 5.0),
         )
 
         # 何らかの描画がある範囲の抽出
