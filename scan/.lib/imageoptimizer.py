@@ -5,6 +5,7 @@ import logging
 import os
 import os.path
 import re
+import shutil
 
 import PIL.Image
 import PIL.ImageChops
@@ -248,12 +249,14 @@ class ImageOptimizer(object):
                 image.size,
                 255,
             )
+            """
             if bound and self._VerboseBound:
                 # ノイズ除去の結果白いページになった
                 diff = PIL.ImageChops.difference(image, whitepage)
                 if not os.path.exists('verbose/dirts'):
                     os.mkdir('verbose/dirts')
                 diff.save('verbose/dirts/%s' % name)
+            """
             return whitepage
 
         # ページの情報の集計
@@ -306,9 +309,11 @@ class ImageOptimizer(object):
         if self._VerboseBound:
             if graydiffs > 0:
                 self._Logger.debug('%s: dirts gray %s black %s', name, graydiffs, blackdiffs)
+                """
                 if not os.path.exists('verbose/dirts'):
                     os.mkdir('verbose/dirts')
                 diff.save('verbose/dirts/%s' % name)
+                """
             if not os.path.exists('verbose/trimmed'):
                 os.mkdir('verbose/trimmed')
             PIL.ImageOps.invert(trimmedImage).save('verbose/trimmed/%s' % name)
@@ -601,6 +606,7 @@ class ImageOptimizer(object):
                     self._Logger.debug('%s:   expected: %s', info['name'], expectedBoundSize)
                     self._Logger.debug('%s: bound     : %s', info['name'], info['bound'])
                     self._Logger.debug('%s:   expected: %s', info['name'], expectedBound)
+                withWarn = False
                 for i, mark in ((0, 'width'), (1, 'height')):
                     if info['boundSize'][i] - expectedBoundSize[i] > self.OUTLIERS_DETECT_MM:
                         self._Logger.warn(
@@ -609,6 +615,7 @@ class ImageOptimizer(object):
                             mark,
                             info['boundSize'][i] - expectedBoundSize[i],
                         )
+                        withWarn = True
                 for i, mark in ((0, 'left'), (1, 'top'), (2, 'right'), (3, 'bottom')):
                     if expectedBound[i] - bound[i] > self.OUTLIERS_DETECT_MM:
                         self._Logger.warn(
@@ -616,6 +623,15 @@ class ImageOptimizer(object):
                             info['name'],
                             mark,
                             expectedBound[i] - bound[i],
+                        )
+                        withWarn = True
+                if withWarn:
+                    if os.path.exists('verbose/trimmed/%s' % info['name']):
+                        if not os.path.exists('verbose/warn'):
+                            os.mkdir('verbose/warn')
+                        shutil.copy(
+                            'verbose/trimmed/%s' % info['name'],
+                            'verbose/warn/%s' % info['name'],
                         )
 
     def _calculateSizeFromSamples(self, valueList):
