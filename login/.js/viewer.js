@@ -15,10 +15,16 @@ $(function() {
       return this.substring(this_len - search.length, this_len) === search;
     };
   }
+  var newKindle = (window.navigator.appVersion.indexOf('Kindle/') >= 0);
 
   var scrollToTop = function() {
-    //location.reload();
-    window.scrollTo(0, 0);
+    // 古いバージョンの Kindle whitepaper がスクロールをトップに持っていけないので
+    // ページをリロードすることでトップに移動する。
+    if (!newKindle) {
+      location.reload();
+    } else {
+      window.scrollTo(0, 0);
+    }
     // 以下はいずれも機能しない
     // window.scrollTo(0, 0);
     // window.scroll(0, 0);
@@ -177,6 +183,9 @@ $(function() {
     var url = '/rpc/cat/scan/epub/' + file.filename.split('/').map(encodeURIComponent).join('/');
     url = url.replace(/\.zip$/, '.mobi');
     newlink.attr('href', url);
+    if (newKindle) {
+      newlink.attr('download', url.split('/').pop());
+    }
     newlink.on('click', function() {
       newlink.addClass('downloaded');
       return true;
@@ -220,6 +229,9 @@ $(function() {
           });
         } else {
           newlink.attr('href', data.url);
+          if (newKindle) {
+            newlink.attr('download', data.url.split('/').pop());
+          }
           newlink.on('click', function() {
             newlink.addClass('downloaded');
             return true;
@@ -324,9 +336,7 @@ $(function() {
     var url = build_url(current_path);
     window.location.hash = fragment;
     if (doScroll) {
-      // Kindle whitepaper がスクロールをトップに持っていけないので
-      // ページをリロードすることでトップに移動する。
-      window.location.reload();
+      scrollToTop();
     }
     if (current_path.length > 0 && current_path[0] === 'fullsearch') {
       $('body').addClass('fullsearch');
@@ -590,6 +600,9 @@ $(function() {
     $('body').addClass('kobo');
   } else if (isKindle()) {
     $('body').addClass('kindle');
+    if (newKindle) {
+      $('html').addClass('newkindle');
+    }
   } else {
     $('body').addClass('pc');
   }

@@ -35,6 +35,9 @@ body * {
 #viewer {
 	font-size: 2rem;
 }
+html.newkindle {
+	font-size: 66%;
+}
 #viewer #login-form {
 	display: none;
 }
