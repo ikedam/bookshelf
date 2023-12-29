@@ -145,6 +145,44 @@ $(function() {
     $('#error').removeClass('none').text(message);
   }
 
+  var authorRe = new RegExp("\\[.*?\\]\\s*");
+  var numberRe = new RegExp("\\s*\\(\\d+\\)\\s*");
+
+  var create_hash_filename = function(title) {
+    // Kindleの新しいブラウザーでダウンロードするファイル名に日本語文字を含んでいると「無効なファイルタイプ」と主張される。
+    // download 属性でファイル名を上書きし、かつファイル名をURLエンコードすることでこの問題を回避できる。
+    // 一方で、ファイル名が長すぎるとダウンロードに(無言で)失敗する。
+    // 244バイトのファイル名までしかダウンロードできない。
+    // おそらくは何らかの理由で \documents\ファイル名 が 255バイトまでに制限されるものと思われる。
+    // かわりにハッシュ値に変換する。
+    // 作者名、巻数の並びが維持されるように、
+    // * [任意文字列] を除去する & URL エンコードする。
+    // * (数値) を除去する。
+    // * ハッシュ化する
+    // * [文字列] および (数値) をつけなおす
+    // という処置を行う。
+    var prefix = "";
+    var suffix = "";
+    title = title.replace(authorRe, function(match) {
+      prefix = prefix + match;
+      return "";
+    });
+    while (true) {
+      // replaceAll だとエラーが出る？
+      var oldTitle = title;
+      title = title.replace(numberRe, function(match) {
+        suffix = suffix + match;
+        return "";
+      });
+      if (title == oldTitle) {
+        break;
+      }
+    }
+    var hash = md5.create();
+    hash.update(title);
+    return encodeURIComponent(prefix) + hash.hex() + suffix;
+  }
+
   var booklistbuilder = function() {
   }
   booklistbuilder.prototype.prepare= function() {
@@ -184,7 +222,7 @@ $(function() {
     url = url.replace(/\.zip$/, '.mobi');
     newlink.attr('href', url);
     if (newKindle) {
-      newlink.attr('download', url.split('/').pop());
+      newlink.attr('download', create_hash_filename(file.filename.split('/').pop().replace(/\.zip$/, '.mobi')) + ".mobi");
     }
     newlink.on('click', function() {
       newlink.addClass('downloaded');
@@ -230,7 +268,7 @@ $(function() {
         } else {
           newlink.attr('href', data.url);
           if (newKindle) {
-            newlink.attr('download', data.url.split('/').pop());
+            newlink.attr('download', create_hash_filename(data.bookname) + ".mobi");
           }
           newlink.on('click', function() {
             newlink.addClass('downloaded');
