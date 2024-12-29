@@ -8,7 +8,6 @@ import io
 import logging
 import os.path
 import re
-import StringIO
 import struct
 import zipfile
 
@@ -21,7 +20,7 @@ import PIL.ImageOps
 
 @contextlib.contextmanager
 def NewStringIO():
-    fh = StringIO.StringIO()
+    fh = io.StringIO()
     try:
         yield fh
     finally:
@@ -66,10 +65,6 @@ class _MobiBuilder(object):
         self._fcis_record_offset = 0xFFFFFFFF
         self._flis_record_offset = 0xFFFFFFFF
 
-        if isinstance(self._author, str):
-            self._author = self._author.decode('utf-8')
-        if isinstance(self._title, str):
-            self._title = self._title.decode('utf-8')
         self._encoded_title = self._title.encode('utf-8')
 
     def add_image_file(self, filename, data):
@@ -328,7 +323,7 @@ class _MobiBuilder(object):
         with NewStringIO() as fh:
             for exth in exthList:
                 type, data = exth[0:2]
-                if isinstance(data, (int, long)):
+                if isinstance(data, int):
                     data = struct.pack('>L', data)
                 else:
                     data = data.encode('utf-8')
@@ -358,7 +353,7 @@ class _MobiBuilder(object):
 
     def _build_text_records(self):
         text = '<html><head><guide></guide></head><body>'
-        for page in xrange(1, len(self._image_files) + 1):
+        for page in range(1, len(self._image_files) + 1):
             text += '<p align="center"><img recindex="{0:05}"/></p><mbp:pagebreak/>'.format(page)
         text += '</body></html>'
 
@@ -389,7 +384,7 @@ class _MobiBuilder(object):
         text += '</metadata>'
         text += '<spine page-progression-direction="rtl">'
         text += '<itemref idref="id1"/>'
-        for page in xrange(len(self._image_files)):
+        for page in range(len(self._image_files)):
             text += '<itemref idref="id{0}" skelid="{1}"/>'.format(page + 2, page)
         text += '</spine>'
 
@@ -508,7 +503,7 @@ class ZipToMobi(object):
                 basename = f.filename.split('/')[-1]
                 ext = os.path.splitext(basename)[1]
                 if ext.lower() not in ('.jpg', '.jpeg'):
-                    self._Logger.warn('Skipped: %s', f.filename)
+                    self._Logger.warning('Skipped: %s', f.filename)
                     continue
                 image = PIL.Image.open(io.BytesIO(rh.read(f)))
                 # コントラストを設定する

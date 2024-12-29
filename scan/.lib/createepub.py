@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import collections
 import datetime
 import io
 import json
@@ -149,7 +148,7 @@ class ZipToKepubEpub(object):
                     continue
                 ext = os.path.splitext(basename)[1]
                 if ext.lower() not in ('.jpg', '.jpeg'):
-                    self._Logger.warn('Skipped: %s', f.filename)
+                    self._Logger.warning('Skipped: %s', f.filename)
                     continue
                 filenameInZip = 'content/' + basename
                 fileList.append(filenameInZip)
@@ -200,11 +199,6 @@ class ZipToKepubEpub(object):
     def _CreateMetadata(self, file, fileList, metadataDefaults):
         author = file['author']
         title = file['title']
-
-        if isinstance(author, str):
-            author = author.decode('utf-8')
-        if isinstance(title, str):
-            title = title.decode('utf-8')
 
         doc = minidom.Document()
 

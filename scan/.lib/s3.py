@@ -9,7 +9,8 @@ def getS3Info():
     if not os.path.exists(s3file):
         return S3Info()
 
-    s3info = json.load(open(s3file, 'rb'))
+    with open(s3file, 'rb') as f:
+        s3info = json.load(f)
     s3 = ConnectedS3Info(s3info)
     s3.connect()
     return s3

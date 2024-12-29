@@ -217,7 +217,7 @@ class ImageOptimizer(object):
     def removeDirts(self, image, name):
         u"""余白部のノイズを除去した画像を返す"""
         if 'dpi' not in image.info:
-            self._Logger.warn('%s: no dpi information', name)
+            self._Logger.warning('%s: no dpi information', name)
             return image
 
         pxPerMm = [
@@ -319,7 +319,7 @@ class ImageOptimizer(object):
             PIL.ImageOps.invert(trimmedImage).save('verbose/trimmed/%s' % name)
 
         if graydiffs > self.DIFF_THRESHOLD_WARN  * image.size[0] * image.size[1]:
-            self._Logger.warn('%s: Many dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
+            self._Logger.warning('%s: Many dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
         elif graydiffs > self.DIFF_THRESHOLD_INFO * image.size[0] * image.size[1]:
             self._Logger.info('%s: Dirts (gray %s / black %s)', name, graydiffs, blackdiffs)
 
@@ -452,7 +452,7 @@ class ImageOptimizer(object):
                 if not bound:
                     # 真っ白なページ
                     # ここに来る前に return していないとおかしい
-                    self._Logger.warn('%s: Unexpected white page', name)
+                    self._Logger.warning('%s: Unexpected white page', name)
                     return None
                 # 印刷量検知
                 if target == 0:
@@ -570,7 +570,7 @@ class ImageOptimizer(object):
             lPage = 1
             rPage = 0
 
-        for name, pageInfos in self._pageInfoMap.iteritems():
+        for name, pageInfos in self._pageInfoMap.items():
             if len(pageInfos) < self.OUTLIERS_MIN_SAMPLES * 2:
                 # サンプル数が少なすぎるので処理対象外とする
                 self._Logger.debug('%s: too few samples, report skipped (%s)', name, len(pageInfos))
@@ -609,7 +609,7 @@ class ImageOptimizer(object):
                 withWarn = False
                 for i, mark in ((0, 'width'), (1, 'height')):
                     if info['boundSize'][i] - expectedBoundSize[i] > self.OUTLIERS_DETECT_MM:
-                        self._Logger.warn(
+                        self._Logger.warning(
                             '%s: print %s is larger than other pages: %.1fmm',
                             info['name'],
                             mark,
@@ -618,7 +618,7 @@ class ImageOptimizer(object):
                         withWarn = True
                 for i, mark in ((0, 'left'), (1, 'top'), (2, 'right'), (3, 'bottom')):
                     if expectedBound[i] - bound[i] > self.OUTLIERS_DETECT_MM:
-                        self._Logger.warn(
+                        self._Logger.warning(
                             '%s: %s bound is outer than other pages: %.1fmm',
                             info['name'],
                             mark,

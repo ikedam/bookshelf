@@ -27,7 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('-v', dest='verbose', action='count', default=0)
     parser.add_argument('-n', dest='dryrun', action='store_true')
     parser.add_argument('--mobi', dest='mobi', action='store_true')
-    parser.add_argument('--max', dest='max', type=long, default=-1)
+    parser.add_argument('--max', dest='max', type=int, default=-1)
     parser.add_argument('--only', dest='only')
     parser.add_argument('--comics', dest='comics', action='store_true')
     opts = parser.parse_args()
@@ -102,9 +102,10 @@ if __name__ == '__main__':
 
     indexer.save()
     fileList.sort(key=(lambda x: -x['mtime']))
-    open('index.json', 'wb').write(json.dumps(
-        fileList,
-        ensure_ascii=False,
-        indent=4,
-        sort_keys=True,
-    ))
+    with open('index.json', 'wb') as f:
+        f.write(json.dumps(
+            fileList,
+            ensure_ascii=False,
+            indent=4,
+            sort_keys=True,
+        ).encode('utf-8'))

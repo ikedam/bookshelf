@@ -1,14 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import cgi
+import html
 import json
 import logging
 import os
 import re
-import sys
-import urllib
-import urllib2
+import urllib.parse
+import urllib.request
 
 
 class Indexer(object):
@@ -24,7 +23,8 @@ class Indexer(object):
             file = os.path.join(os.path.dirname(__file__), 'author.json')
         self._File = file
         if os.path.exists(self._File):
-            self._Cache = json.load(open(self._File, 'rb'))
+            with open(self._File, 'rb') as f:
+                self._Cache = json.load(f)
         else:
             self._Cache = {}
         self._modified = False
@@ -49,26 +49,25 @@ class Indexer(object):
         author = author.replace(' ', '')
         cache = self._get_cache(author, doubt)
         if cache.get('ruby'):
-            return cache['ruby'].encode('utf-8')
+            return cache['ruby']
         else:
             return self.LAST
 
     def _get_cache(self, author, doubt):
-        authorUnicode = author.decode('utf-8')
-        if authorUnicode in self._Cache:
-            return self._Cache[authorUnicode]
+        if author in self._Cache:
+            return self._Cache[author]
 
         # 未知の著者名
-        if re.search(ur'^[\u3041-\u30feA-Z\x20-\x7f]*$', authorUnicode):
+        if re.search(r'^[\u3041-\u30feA-Z\x20-\x7f]*$', author):
             # ひらがな、カタカナ、半角文字だけの構成
             # ア-ヴ → あ-ゔ
-            authorUnicode = re.sub(
-                ur'([\u30a2-\u30f4])',
-                (lambda x: unichr(ord(x.group(0)) - 96)),
-                authorUnicode,
+            author = re.sub(
+                r'([\u30a2-\u30f4])',
+                (lambda x: chr(ord(x.group(0)) - 96)),
+                author,
             )
             return {
-                'ruby': authorUnicode,
+                'ruby': author,
             }
         else:
             # インターネットから取得
@@ -80,14 +79,14 @@ class Indexer(object):
                 'rvprop': 'content',
                 'titles': author,
             }
-            url = '{0}?{1}'.format(url, urllib.urlencode(query))
+            url = '{0}?{1}'.format(url, urllib.parse.urlencode(query))
             self._Logger.debug('Resolving %s by %s', author, url)
             cache = {
                 'ruby': '',
                 'url': url,
             }
             try:
-                response = urllib2.urlopen(url)
+                response = urllib.request.urlopen(url)
                 body = response.read()
                 self._Logger.debug('Response: %s', body)
                 data = json.loads(body, 'utf-8')
@@ -102,25 +101,25 @@ class Indexer(object):
                         break
                 if not match:
                     raise Exception('Unexpected content for {0}: {1}'.format(author, content))
-                cache['ruby'] = match.group(1).decode('utf-8')
+                cache['ruby'] = match.group(1)
             except Exception as e:
                 if doubt:
                     # もともと人名か疑わしい
-                    self._Logger.warn('Consider %s is not an author name', author)
+                    self._Logger.warning('Consider %s is not an author name', author)
                     return {}
                 self._Logger.exception('Failed to resolve %s by %s', author, url)
-                cache['exception'] = str(e).decode('utf-8')
+                cache['exception'] = str(e)
 
         # カタカナをひらがなに変換
         cache['ruby'] = re.sub(
-            ur'[\u30a1-\u30f6]',
-            (lambda x: unichr(ord(x.group(0)[0]) - 0x60)),
+            r'[\u30a1-\u30f6]',
+            (lambda x: chr(ord(x.group(0)[0]) - 0x60)),
             cache['ruby'],
         )
 
-        self._Logger.info('Resolved: %s -> %s', author, cache['ruby'].encode('utf-8'))
+        self._Logger.info('Resolved: %s -> %s', author, cache['ruby'])
 
-        self._Cache[authorUnicode] = cache
+        self._Cache[author] = cache
         self._modified = True
 
         return cache
@@ -134,7 +133,8 @@ class Indexer(object):
             indent=4,
             sort_keys=True,
         )
-        open(self._File, 'wb').write(data.encode('utf-8'))
+        with open(self._File, 'wb') as f:
+            f.write(data.encode('utf-8'))
         self._modified = False
 
 
@@ -149,7 +149,8 @@ class IndexScanner(object):
         self._Ignores = []
         file = os.path.join(os.path.dirname(__file__), 'ignores.txt')
         if os.path.exists(file):
-          self._Ignores = [line.rstrip() for line in open(file).readlines()]
+          with open(file) as f:
+              self._Ignores = [line.rstrip() for line in f]
 
     def scan(self, generator, title, dir, controllerPath, opts):
         return self._scanImpl(generator, title, dir, '', controllerPath, opts)
@@ -214,7 +215,7 @@ class IndexScanner(object):
                         'title': match.group(2),
                         'series': match.group(3),
                         'seq': match.group(4),
-                        'mtime': long(stat.st_mtime),
+                        'mtime': int(stat.st_mtime),
                     }
                 else:
                     file = {
@@ -227,7 +228,7 @@ class IndexScanner(object):
                         'title': basename,
                         'series': basename,
                         'seq': None,
-                        'mtime': long(stat.st_mtime),
+                        'mtime': int(stat.st_mtime),
                     }
                 fileList.append(file)
 
@@ -325,23 +326,23 @@ class IndexGenerator(object):
 <body>
 <ul>
 """.lstrip().format(
-            title=cgi.escape(title),
+            title=html.escape(title),
             controllerPath=controllerPath,
         )
 
         for subdir in subdirList:
             content += '<li><a href="{subdirUrl}/index.html" bookdate="{bookdate}" ruby="{ruby}">{title}</a></li>\n'.format(
-                title=cgi.escape(subdir['filename']),
-                ruby=cgi.escape(subdir['ruby'] or ''),
-                subdirUrl=urllib.quote(subdir['filename'], ''),
+                title=html.escape(subdir['filename']),
+                ruby=html.escape(subdir['ruby'] or ''),
+                subdirUrl=urllib.parse.quote(subdir['filename'], ''),
                 bookdate=subdir['mtime'],
             )
 
         for file in fileList:
             content += '<li><a href="{fileUrl}" bookdate="{bookdate}" ruby="{ruby}">{title}</a></li>\n'.format(
-                title=cgi.escape(file['basename']),
-                ruby=cgi.escape(file['ruby'] or ''),
-                fileUrl=urllib.quote(file['filename'], ''),
+                title=html.escape(file['basename']),
+                ruby=html.escape(file['ruby'] or ''),
+                fileUrl=urllib.parse.quote(file['filename'], ''),
                 bookdate=file['mtime'],
             )
 
@@ -361,7 +362,7 @@ class IndexGenerator(object):
             os.unlink(indexFile)
         try:
             with open(indexFile, 'wb') as f:
-                f.write(content)
+                f.write(content.encode('utf-8'))
         except Exception:
             self._Logger.exception('subdir: %r, files: %r', subdirList, fileList)
             raise
@@ -372,7 +373,7 @@ class IndexGenerator(object):
         if not os.path.exists(file):
             return True
         with open(file, 'rb') as f:
-            return f.read() != content
+            return f.read() != content.encode('utf-8')
 
 
 class CopyingIndexGenerator(IndexGenerator):

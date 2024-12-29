@@ -3,7 +3,6 @@
 
 import argparse
 import calendar
-import collections
 import datetime
 import io
 import json
@@ -11,7 +10,6 @@ import logging
 import os.path
 import re
 from xml.dom import minidom
-import shutil
 import subprocess
 import tempfile
 import time
@@ -36,7 +34,8 @@ class ZipToMobi(object):
         self._SRCSStripper = None
         try:
             # https://www.mobileread.com/forums/showthread.php?t=96903
-            import kindlestrip
+            # https://pypi.org/project/kindlestrip/
+            import kindlestrip # type: ignore
             self._SRCSStripper = kindlestrip.SRCSStripper
         except ImportError:
             self._Logger.info('kindlestrip was not found. SRCS strip feature is disabled.')
@@ -151,7 +150,7 @@ class ZipToMobi(object):
                     continue
                 ext = os.path.splitext(basename)[1]
                 if ext.lower() not in ('.jpg', '.jpeg'):
-                    self._Logger.warn('  Skipped: %s', f.filename)
+                    self._Logger.warning('  Skipped: %s', f.filename)
                     continue
                 if self._Optimizer.divideMode:
                     w = (io.BytesIO(), io.BytesIO())
@@ -273,7 +272,7 @@ class ZipToMobi(object):
         object = bucket.Object(file['relative'])
         if not self._CheckUploadToS3(object, file):
             return
-        self._Logger.info('  Uploading to s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        self._Logger.info('  Uploading to s3://%s/%s...', object.bucket_name, object.key)
         startTime = time.time()
         import botocore
         retry = 0
@@ -283,9 +282,9 @@ class ZipToMobi(object):
             except botocore.exceptions.ClientError as e:
                 if retry < 3:
                     retry = retry + 1
-                    self._Logger.warn(
+                    self._Logger.warning(
                         '  Uploading to s3://%s/%s failed. Retrying...: %s',
-                        object.bucket_name.encode('utf-8'),
+                        object.bucket_name,
                         object.key,
                         e,
                     )
@@ -299,7 +298,7 @@ class ZipToMobi(object):
         )
 
     def _CheckUploadToS3(self, object, file):
-        self._Logger.debug('  Checking s3://%s/%s...', object.bucket_name.encode('utf-8'), object.key)
+        self._Logger.debug('  Checking s3://%s/%s...', object.bucket_name, object.key)
         import botocore
         retry = 0
         while True:
@@ -311,9 +310,9 @@ class ZipToMobi(object):
                     return True
                 if retry < 3:
                     retry = retry + 1
-                    self._Logger.warn(
+                    self._Logger.warning(
                         '  Checking s3://%s/%s failed. Retrying...: %s',
-                        object.bucket_name.encode('utf-8'),
+                        object.bucket_name,
                         object.key,
                         e,
                     )
@@ -356,11 +355,6 @@ class ZipToMobi(object):
     def _CreateMetadata(self, file, fileList, metadataDefaults):
         author = file['author']
         title = file['title']
-
-        if isinstance(author, str):
-            author = author.decode('utf-8')
-        if isinstance(title, str):
-            title = title.decode('utf-8')
 
         doc = minidom.Document()
 
@@ -405,7 +399,7 @@ class ZipToMobi(object):
             # ここで指定するサイズには意味がない様子。
             'original-resolution': '{0}x{1}'.format(*self.SIZE),
         }
-        for key, value in meta_fields.iteritems():
+        for key, value in meta_fields.items():
             meta = doc.createElement('meta')
             meta.setAttribute('name', key)
             meta.setAttribute('content', value)
