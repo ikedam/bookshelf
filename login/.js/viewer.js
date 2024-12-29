@@ -47,6 +47,23 @@ $(function() {
     // document.body.scroll(0, 0);
   };
 
+  var fixCookie = function() {
+    // Kindle のブラウザーがいつまでもセッションCookieを破棄しない。
+    // 一方、LinkStation はサーバーサイドのセッションが切れていると
+    // エラー扱いにし、セッションCookieを破棄させないため、
+    // エラーから抜け出せない。
+    // そのため、セッションCookieを有効期限付きCookieに書き換える。
+    // Cookie は webaxs_session しかないことを前提にする。
+    var currentCookie = document.cookie;
+    if (!currentCookie) {
+      return;
+    }
+    var expire = new Date();
+    expire.setTime(expire.getTime() + 60 * 60 * 1000);
+    document.cookie = document.cookie + ';Path=/;expires=' + expire.toUTCString()
+  }
+  fixCookie();
+
   // ディレクトリ名のパーツリスト
   var current_path = [];
 
@@ -352,6 +369,7 @@ $(function() {
         'withCredentials': true
       },
     }).done(function(data) {
+      fixCookie();
       fullindex = data;
       load_fullsearch_loaded(search);
     }).fail(function(jqXHR, textStatus, errorThrown) {
@@ -393,6 +411,7 @@ $(function() {
         'withCredentials': true
       },
     }).done(function(data) {
+      fixCookie();
       // Kindlewhitepaper で正しく処理ができないようなので、body の中身だけに絞る 
       data = data.replace(new RegExp('[\n\r]', 'g'), '');
       data = data.replace(new RegExp('^.*<body>'), '');
@@ -553,6 +572,7 @@ $(function() {
         'withCredentials': true
       }
     }).done(function() {
+      fixCookie();
       $('body').removeClass('unauthorized');
       load(null, false);
     });
